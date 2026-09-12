@@ -60,3 +60,5 @@ mark{background:#fbe1d1;color:inherit;padding:0 1px;border-radius:2px}
 .money-table td{vertical-align:top} .money-table td:first-child{font-weight:500}
 .shots img{height:220px}
 .metric-value{white-space:nowrap}
+.card > .extra.inline > summary{padding:12px 20px}
+.card > .extra.inline > table{margin:0}
