@@ -1,64 +1,73 @@
 # appstore
 
-App Store competitor research for people building iOS apps. Give it a link or an idea and it writes a research folder: every competitor's listing, pricing, in-app purchases, star histogram, chart rank, screenshots, and **every written review with the developer's replies**, plus a searchable report page.
+An agent skill for people building iOS apps. Give Claude Code or Codex an App Store link or an app idea, and it fetches everything Apple shows publicly, then answers your questions in chat. Ask for a report when you want one page to open or share.
 
-It runs as one Node file with no packages, and it needs no Apple developer account or API key.
+No account, no API key, no packages. One Node file that reads Apple's public endpoints.
 
+## What you can ask
+
+- "I want to build a habit tracker. Who am I up against?"
+- "Here's my app, what do people complain about?" with an apps.apple.com link
+- "How does Bevel make money?"
+- "Compare these five and tell me where they differ"
+- "Which search terms does Phantom show up for?"
+- "Fix my title and subtitle against these competitors"
+- "Anything changed since last week?"
+- "Give me the full report"
+
+Every answer uses fetched numbers and verbatim reviews. Nothing is estimated.
+
+## What it fetches
+
+Listing details, subtitle, price and every in-app purchase with its price, rating and the 5-to-1 star histogram, category chart position, privacy label, screenshots, Apple's "you might also like", and every written review with developer replies, from any storefront. Search positions for any term and Apple's search autocomplete. Top Free and Top Grossing charts.
+
+Not available anywhere public, so never shown: downloads, revenue, retention, keyword popularity scores.
+
+## Install
+
+Node 18 or newer is the only requirement.
+
+Claude Code:
+
+```bash
+git clone https://github.com/iam-joey/appstore-skill ~/.claude/skills/appstore
 ```
-node scripts/appstore.js run --idea "memecoin trading platform" \
-  --terms "memecoin|meme coin trading|meme coins|pump fun" --must "meme|memecoin" --top 5
+
+Codex:
+
+```bash
+git clone https://github.com/iam-joey/appstore-skill ~/.codex/skills/appstore
 ```
 
-Output lands in `~/appstore-data/runs/<name>/`:
+Then talk to your agent. Data lands in `~/appstore-data/runs/<name>/` as JSON and CSV, plus `report.html`.
 
+## The report
+
+One page per run. Sections appear as the data does: candidates, app profiles with screenshots, pricing, side by side, search terms, review signals, and a reviews explorer with search, Loved / Complaints, star, storefront and developer-reply filters. Plain HTML, opens anywhere, no server.
+
+## Running it by hand
+
+```bash
+node scripts/appstore.js run --idea "memecoin trading" --terms "memecoin|meme coin trading|solana memecoin" --must "meme" --top 5 --run memecoin
 ```
-shortlist.json / .csv      who competes, found via search, Apple's similar apps, and category charts
-profiles.json              listing details, IAP prices, histogram, chart rank, privacy labels
-reviews-summary.json       counts per app, last-90-day negative share, developer reply counts
-apps/<app>/meta.json       every field Apple exposes
-apps/<app>/page.json       embedded store-page data
-apps/<app>/reviews.json    all reviews, .csv alongside
-apps/<app>/screenshots/    icon, iPhone, iPad, Apple Watch
-report.html                the research page with a reviews explorer
-provenance.json            which endpoint answered, how many calls, what failed
-```
-
-## Use as an agent skill
-
-The folder follows the Agent Skills format (`SKILL.md` + `scripts/`). Copy or symlink it:
-
-- Claude Code: `~/.claude/skills/appstore`
-- Codex: `~/.codex/skills/appstore`
-- Any other agent that reads `SKILL.md`
-
-Then ask in plain words: "check this app: https://apps.apple.com/…", "who competes with a sleep score app", "what do Bevel users complain about".
-
-## Use as a CLI
 
 | Command | Does |
 |---|---|
-| `run --idea … --terms … --must … --top N` | find, profile, reviews, report in one go |
-| `find --terms "a\|b\|c" --must "w"` | shortlist only |
-| `profile <link\|id\|name> …` | full listing per app, screenshots saved |
-| `reviews <link\|id\|name> … [--country us,in] [--since YYYY-MM-DD]` | every review, all storefronts you ask for |
-| `hints "<term>" …` | Apple's autocomplete, i.e. what people actually type |
-| `report --run <name>` | rebuild report.html from the folder |
+| `find --terms "a\|b" --must "w"` | Shortlist candidates for an idea, with chart ranks |
+| `profile <link\|id\|name> ...` | Full listing per app, screenshots saved |
+| `reviews <link\|id\|name> ...` | Every written review with developer replies |
+| `compare --terms "withdraw\|fees"` | Side by side table, plus review mentions per word |
+| `keywords --terms "a\|b"` | Search position per term per app, Apple autocomplete |
+| `aso <my link> --vs "id\|id" --terms "a\|b"` | Your title and subtitle words vs competitors, positions per term |
+| `refresh` | Refetch a run and list what changed |
+| `report` | Rebuild `report.html` |
+| `hints "<term>"` | Apple's autocomplete for a term |
 
-Node 18 or newer. Set `APPSTORE_DATA` to move the data folder.
+Options: `--run <name>`, `--country us,in`, `--top 5`, `--exclude "coinbase"`, `--pick id,id`, `--full-images`.
 
-## Where the data comes from
+## Data sources
 
-All public Apple endpoints, fetched with a 24-hour cache and pacing so you never get rate-limited:
-
-- Lookup and Search APIs: details, descriptions, screenshots, search results
-- The store page's embedded data: histogram, chart rank, in-app purchase prices, privacy labels, similar apps
-- The iTunes-era reviews endpoint: every review, four sort orders, any storefront, with developer replies
-- RSS charts: Top Free, Top Paid, Top Grossing per category
-- Search autocomplete
-
-## What it will never show
-
-Downloads, revenue, retention, or Apple's keyword popularity score, because no public source publishes them and this tool does not estimate. Top Free rank is the official download signal; Top Grossing rank is the App Store revenue signal.
+iTunes Lookup and Search APIs, the App Store web page's embedded data, the legacy iTunes reviews endpoint (all reviews, any storefront), RSS charts, and the search autocomplete endpoint. Responses are cached for 24 hours in `~/appstore-data/cache/`. Store pages are fetched no faster than one every 2.5 seconds because Apple rate-limits them.
 
 ## License
 

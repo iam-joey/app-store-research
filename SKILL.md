@@ -1,66 +1,54 @@
 ---
 name: appstore
-description: App Store competitor research for people building iOS apps. Use this whenever the user shares an apps.apple.com link, names an iOS app, describes an app idea and wants to know the competition, asks what users complain about in an app, wants an app's reviews, pricing, in-app purchases, ratings, screenshots, or chart position, or asks how to rank better in App Store search. Trigger even when the user does not say "App Store" but clearly means a competitor teardown, app research, or ASO for an iOS app. Fetches everything from public Apple endpoints with no account or API key.
+description: App Store research for people building iOS apps, from public Apple data with no account or API key. Use this whenever the user shares an apps.apple.com link, names an iOS app, describes an app idea and wants to know the competition, asks what users complain about or love in an app, wants an app's reviews, pricing, in-app purchases, ratings, screenshots or chart position, wants to compare apps, asks which search terms apps show up for, or asks how to improve their own app's title, subtitle or App Store search ranking (ASO). Trigger even when the user never says "App Store" but clearly means iOS competitor research.
 ---
 
 # appstore
 
-Research any iOS app or app idea from public App Store data. The engine is `scripts/appstore.js`, a single Node file with no dependencies. It fetches, caches, and writes a run folder. You read the folder and write the verdicts.
+The engine is `scripts/appstore.js`: one Node 18+ file, no dependencies. Every command writes JSON into a run folder under `~/appstore-data/runs/<name>/` (override the root with `APPSTORE_DATA`) and regenerates `report.html` there. You read the folder and answer in chat. The page is for when the user wants one thing to open or share.
 
-Data folder: `~/appstore-data/` (override with `APPSTORE_DATA`). Each run lives in `runs/<name>/`.
+Run: `node scripts/appstore.js <command> ... --run <name>`. JSON goes to stdout, progress to stderr. Pick a short run name from the idea or app and reuse it for every follow-up, so the data accumulates in one folder.
 
 ## Rules
 
-- Only fetched numbers appear in output. Never estimate downloads, revenue, or anything Apple does not publish. If asked, say plainly that no public source exists and point to Top Free rank (downloads signal) and Top Grossing rank (App Store revenue signal).
-- Quote reviews verbatim with stars and date. Never paraphrase a review as if it were a quote.
-- When you classify or count reviews by theme, say how you counted and show the search word so the user can reproduce it in the explorer.
-- Every fetch goes through the script. Do not scrape by hand.
+- Only fetched numbers. Never estimate downloads, revenue or retention; Apple does not publish them. If asked, say so and point to Top Free rank (a download signal) and Top Grossing rank (an App Store revenue signal).
+- Quote reviews verbatim with stars and date. Never paraphrase one as if it were a quote.
+- When you count reviews by theme, say how (the search word) so the user can repeat it in the page's search box.
+- All fetching goes through the script. Do not scrape by hand. Do not run two instances at once; Apple rate-limits store pages and the script paces itself.
 
-## Commands
+## What the user asks, what you do
 
-Run with `node scripts/appstore.js <command> ... --run <name>`. The script prints JSON to stdout and progress to stderr.
+| They ask | Command | Read | Answer in chat |
+|---|---|---|---|
+| Who are my competitors for [idea]? | `find --terms "a\|b\|c" --must "w"` | `shortlist.json` | 5 to 8 apps: name with link, rating, ratings count, price, chart ranks. Offer to profile the top ones. |
+| Tell me about [app] | `profile <link>` | `profiles.json` | Price, in-app purchases, rating and count, chart position, last update, subtitle, privacy label summary. |
+| What do people hate / love about [app]? | `reviews <link>` | `reviews-summary.json`, `apps/*/reviews.json` | Counts (all time, last 90 days, negative share), then 3 to 5 verbatim quotes with stars and dates. Name the search word and the Loved / Complaints button on the page. |
+| How do they make money? | `profile` | `profiles.json` | One table: download price, in-app purchase names and prices. |
+| Compare these / me vs them | `compare --terms "withdraw\|fees"` | `compare.json` | Point to the Side by side section. In chat, only the rows that differ. `--terms` counts reviews mentioning each word per app. |
+| What search terms do they show up for? | `keywords --terms "a\|b"` | `keywords.json` | Grid of term by app position, Apple's autocomplete per term, apps that outrank them. Without `--terms` it reuses the run's search terms. |
+| How do I fix my title and subtitle? | `aso <my link> --vs "id\|id" --terms "a\|b"` | `aso.json` | Their title and subtitle words vs the competitors', words they lack, Apple autocomplete for the seeds, and where they and each competitor rank for each term. Character counts against the 30 limit. |
+| Anything changed since last time? | `refresh` | `changes.json` | Per app: rating, ratings, price, IAP, chart, version changes and new review counts. |
+| The whole research on [idea] | `run --idea "..." --terms "a\|b\|c\|d\|e\|f" --must "w" --top 5` | everything | find, profile, reviews, compare, keywords, report in one go. 2 to 6 minutes. Then give the report. |
+| Give me the report | `report` | | Path to `report.html`. Publish it if an artifact tool exists, with `apps/**/screenshots/*` as supporting files so images render. |
 
-| Command | Use | Key options |
-|---|---|---|
-| `run --idea "<idea>" --terms "a\|b\|c" --must "w\|x" --top 5` | Idea to full report in one go: find, profile, reviews, report | `--country us,in` `--full-images` |
-| `find --terms "a\|b\|c" --must "w\|x"` | Shortlist only | `--top 8` |
-| `profile <link\|id\|name> ...` | Full listing per app, screenshots saved | `--country us,in` |
-| `reviews <link\|id\|name> ...` | Every written review, with developer replies | `--country us,in` `--since 2026-06-01` |
-| `hints "<term>" ...` | Apple's autocomplete: what people actually type | `--country` |
-| `report` | Rebuild `report.html` from the run folder, including `verdicts.json` | |
+`--terms` and `--must` use `|` as separator. `--country us,in` fetches several storefronts (first one is used for search and charts). `--exclude "coinbase|binance"` drops names from a shortlist. `--pick id,id` chooses which candidates to profile. `hints "<term>"` prints Apple's autocomplete for any term.
 
-`--terms` uses `|` as separator. `--must` keeps only apps whose name or description contains one of those words; use it to filter giants that match a generic term.
+## Chat or page?
 
-## Report or terminal?
+Chat by default. Every answer above fits in a few lines plus quotes. Give the page when the user asks for a report, asks for the full research on an idea, or asks for something that is a table (compare, keywords) or a list too long for chat (all reviews). Then say where `report.html` is and, if you can publish artifacts, publish it. One page per run; it grows as commands add sections.
 
-The script writes `report.html` on every fetch; that is free. Decide only whether to point the user at it.
+## Search terms for an idea
 
-- Research-shaped request (an idea, "tear down this app", "compare these", "what do users complain about"): the answer is the report. Write `verdicts.json`, run `report`, give the path, publish it if an artifact tool exists.
-- Fact-shaped request ("how many ratings does X have", "what does Y charge", "when was Z updated"): answer in one or two lines from the folder. Do not mention the report unless asked.
-- Follow-up on an existing run ("show me the withdrawal complaints"): quote the matching reviews in chat, then one line pointing to the explorer search that shows the rest.
-- The user can force either way with "make the report" or "just tell me".
+Turn the idea into 6 to 8 terms a real person would type: the exact phrase, two-word variants, the category noun, one or two brand names people would search for. Run `hints` on the two core terms first and add suggestions that fit. Pick 1 to 3 `--must` words a true competitor would have in its listing; without them, generic terms return giants like Coinbase or Instagram.
 
-## Workflow for an idea
+## Follow-up questions
 
-1. Turn the idea into 6 to 8 search terms a real person would type. Mix the exact phrase, two-word variants, and the category noun. Run `hints` on the two core terms first and add any suggestion that fits.
-2. Pick 1 to 3 `--must` words that a true competitor would have in its listing.
-3. `run` with `--top 5`. It takes 2 to 6 minutes depending on review counts. Apple rate-limits store page fetches; the script paces itself, so do not run two instances at once.
-4. Read `shortlist.json`, `profiles.json`, `reviews-summary.json`. Then read reviews: the newest 1 to 2 star reviews per app from `apps/*/reviews.json`, and the most helpful 5 star ones.
-5. Write `verdicts.json` in the run folder, then run `report`. Keys: `takeaway` (two or three sentences, the only paragraph on the page), then `market`, `competitors`, `money`, `failing`, `reviews`, each ONE sentence. Every claim backed by a number or a quote from the folder. Name the explorer search word that proves it, for example: search "withdraw". Example: `"failing": "Moonshot: 305 of 2,135 negative reviews mention withdrawals; 75% of its last-90-day reviews are 1 to 2 stars. fomo: fees and a missing slippage preview, 18 mentions since June."`
-6. Tell the user where `report.html` is. If an artifact tool is available, publish it with the run folder's `apps/**/screenshots/*` as supporting files so images render.
+The run folder is the source of truth. Use short Node one-liners over `apps/*/reviews.json` to count and filter, for example 1-star reviews since a date that mention a word. Quote the matches verbatim. Point to the same search on the page.
 
-## Workflow for a link or app name
+## Not available
 
-`profile` then `reviews` on it (add `--country` for the user's storefront), then `report`. Same verdict step, keys `competitors`, `money`, `failing`, `reviews`.
-
-## Answering follow-up questions
-
-The run folder is the source of truth. Use short Node one-liners over `reviews.json` to count and filter, for example reviews mentioning a word by month, or 1 star reviews since a date. Quote the matching reviews verbatim. Point the user to the explorer in `report.html` for the same filter so they can read the rest.
-
-## What is not available
-
-Downloads, revenue, retention, daily users, Apple's keyword popularity score, individual star ratings without text, version history beyond the current release, the hidden keyword field of any app. Say so when asked.
+Downloads, revenue, retention, daily users, Apple's keyword popularity score, star ratings without text, version history before the current release, any app's hidden keyword field. Say so plainly when asked. Keyword positions come from Apple's Search API order for the storefront, which tracks App Store search closely but is not the same ranking users see with personalisation.
 
 ## Storefronts
 
-`--country` takes ISO codes: us, in, gb, ca, au, de, fr, jp, br, mx, es, it, nl, se, sg, ae, kr, and about 30 more. Reviews come back in the language they were written in.
+`--country` takes ISO codes: us, in, gb, ca, au, de, fr, jp, br, mx, es, it, nl, se, sg, ae, kr and about 30 more. Reviews come back in the language they were written in.

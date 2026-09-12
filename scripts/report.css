@@ -128,3 +128,15 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .side-bottom{padding:0} .side-version{font-size:11px;color:var(--muted-2);letter-spacing:0;text-transform:none;font-family:var(--mono, ui-monospace, monospace)}
 .brand{display:flex;flex-direction:row;align-items:center;gap:10px;padding:4px 0 2px} .brand-name{white-space:nowrap;font-size:14px;line-height:1.2;display:inline} .brand em{font-size:14px;margin-left:4px}
 .brand-caption{margin:8px 0 18px}
+
+/* compare + keywords */
+.stack{display:flex;flex-direction:column;gap:14px}
+.group-row td{background:var(--soft);color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:8px 22px;text-align:left}
+.compare-table td:first-child{color:var(--body);font-weight:400}
+.compare-table th a,.keyword-table th a{font-weight:600}
+.keyword-table td b{color:var(--ink)}
+.chip.static{cursor:default;font-size:12px;padding:3px 9px;margin:2px 0} .chip.static:hover{background:var(--paper);border-color:var(--line)}
+.auto-cell{max-width:320px;line-height:1.9}
+.chip.preset[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.compare-table td:last-child,.keyword-table td:last-child{font-weight:400;color:var(--body)}
+.compare-table td .sub{display:block}
