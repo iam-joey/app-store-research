@@ -1,0 +1,349 @@
+#!/usr/bin/env node
+// appstore — App Store research from public endpoints. Zero dependencies. Node 18+.
+// Commands: find | profile | reviews | report | run     (see SKILL.md)
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+
+const DATA = process.env.APPSTORE_DATA || path.join(os.homedir(), 'appstore-data');
+const CACHE_TTL = 24 * 3600 * 1000;
+const UA_WEB = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
+const UA_ITUNES = 'iTunes/12.12 (Macintosh; OS X 10.15.7) AppleWebKit/605.1.15';
+const STOREFRONT = {us:143441,in:143467,gb:143444,ca:143455,au:143460,de:143443,fr:143442,jp:143462,br:143503,mx:143468,es:143454,it:143450,nl:143452,se:143456,sg:143464,ae:143481,kr:143466,cn:143465,ru:143469,tr:143480,id:143476,ph:143474,my:143473,th:143475,vn:143471,pk:143477,ng:143561,za:143472,eg:143516,sa:143479,nz:143461,ie:143449,ch:143459,at:143445,be:143446,dk:143458,no:143457,fi:143447,pl:143478,pt:143453,il:143491,ar:143505,cl:143483,co:143501,pe:143507,hk:143463,tw:143470};
+
+// ---------- utils ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const ensure = d => { fs.mkdirSync(d, { recursive: true }); return d; };
+const writeJSON = (p, o) => fs.writeFileSync(p, JSON.stringify(o, null, 1));
+const readJSON = p => fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+const today = () => new Date().toISOString().slice(0, 10);
+const log = (...a) => console.error(...a);
+function csv(rows, cols) {
+  const esc = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  return [cols.join(',')].concat(rows.map(r => cols.map(c => esc(r[c])).join(','))).join('\n');
+}
+function parseArgs(argv) {
+  const o = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) { const k = a.slice(2); const v = (argv[i + 1] && !argv[i + 1].startsWith('--')) ? argv[++i] : true; o[k] = v; }
+    else o._.push(a);
+  }
+  return o;
+}
+
+// ---------- http with cache + pacing + backoff ----------
+let lastHit = 0;
+const PACE = { 'apps.apple.com': 2500, default: 400 };
+const prov = []; // provenance log
+async function http(url, { headers = {}, binary = false, ttl = CACHE_TTL, label = '' } = {}) {
+  const key = crypto.createHash('sha1').update(url + JSON.stringify(headers)).digest('hex');
+  const cdir = ensure(path.join(DATA, 'cache'));
+  const cpath = path.join(cdir, key + (binary ? '.bin' : '.txt'));
+  const meta = path.join(cdir, key + '.meta.json');
+  if (fs.existsSync(cpath) && fs.existsSync(meta)) {
+    const m = readJSON(meta);
+    if (Date.now() - m.t < ttl) { prov.push({ label, url, status: 'cache' }); return binary ? fs.readFileSync(cpath) : fs.readFileSync(cpath, 'utf8'); }
+  }
+  const host = new URL(url).host;
+  const pace = PACE[host] || PACE.default;
+  const wait = lastHit + pace - Date.now(); if (wait > 0) await sleep(wait);
+  let lastErr;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    lastHit = Date.now();
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA_WEB, 'Accept-Language': 'en-US,en;q=0.9', ...headers } });
+      if (res.status === 429 || res.status >= 500) { lastErr = new Error('HTTP ' + res.status); await sleep(8000 * (attempt + 1)); continue; }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const body = binary ? Buffer.from(await res.arrayBuffer()) : await res.text();
+      fs.writeFileSync(cpath, body); writeJSON(meta, { t: Date.now(), url });
+      prov.push({ label, url, status: res.status });
+      return body;
+    } catch (e) { lastErr = e; if (!/HTTP (429|5\d\d)/.test(String(e))) break; }
+  }
+  prov.push({ label, url, status: 'failed', error: String(lastErr) });
+  throw lastErr;
+}
+const httpJSON = async (url, opt) => JSON.parse(await http(url, opt));
+
+// ---------- apple endpoints ----------
+async function lookup(id, cc = 'us') {
+  const d = await httpJSON(`https://itunes.apple.com/lookup?id=${id}&country=${cc}`, { label: 'lookup' });
+  return d.results.find(r => r.wrapperType === 'software') || null;
+}
+async function lookupDeveloper(artistId, cc = 'us') {
+  const d = await httpJSON(`https://itunes.apple.com/lookup?id=${artistId}&entity=software&country=${cc}`, { label: 'developer' });
+  return d.results.filter(r => r.wrapperType === 'software');
+}
+async function search(term, cc = 'us', limit = 25) {
+  const d = await httpJSON(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=${cc}&entity=software&limit=${limit}`, { label: 'search', ttl: 6 * 3600 * 1000 });
+  return d.results;
+}
+async function hints(term, cc = 'us') {
+  const sf = STOREFRONT[cc] || STOREFRONT.us;
+  const xml = await http(`https://search.itunes.apple.com/WebObjects/MZSearchHints.woa/wa/hints?clientApplication=Software&term=${encodeURIComponent(term)}`, { headers: { 'X-Apple-Store-Front': `${sf}-1,29`, 'User-Agent': UA_ITUNES }, label: 'autocomplete', ttl: 6 * 3600 * 1000 });
+  return [...xml.matchAll(/<key>term<\/key>\s*<string>([^<]*)<\/string>/g)].map(m => m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+}
+async function chart(kind, genreId, cc = 'us', limit = 200) {
+  // kind: topfreeapplications | toppaidapplications | topgrossingapplications
+  const g = genreId ? `/genre=${genreId}` : '';
+  const d = await httpJSON(`https://itunes.apple.com/${cc}/rss/${kind}/limit=${limit}${g}/json`, { label: 'chart:' + kind, ttl: 6 * 3600 * 1000 });
+  const e = d.feed.entry || [];
+  return (Array.isArray(e) ? e : [e]).map((a, i) => ({ rank: i + 1, id: a.id.attributes['im:id'], name: a['im:name'].label }));
+}
+async function storePage(id, cc = 'us') {
+  const html = await http(`https://apps.apple.com/${cc}/app/id${id}`, { label: 'page' });
+  const m = html.match(/<script[^>]*id="serialized-server-data"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return { error: 'no embedded data' };
+  const sm = JSON.parse(m[1]).data[0].data.shelfMapping;
+  const out = {};
+  try { const pr = sm.productRatings.items[0]; out.ratingAverage = pr.ratingAverage; out.ratingCount = pr.totalNumberOfRatings; out.histogram = { 5: pr.ratingCounts[0], 4: pr.ratingCounts[1], 3: pr.ratingCounts[2], 2: pr.ratingCounts[3], 1: pr.ratingCounts[4] }; } catch {}
+  try { const pos = (sm.informationRibbon.items || []).find(i => i.type === 'chartPosition'); if (pos) out.chart = { position: Number(pos.content.position), category: pos.caption }; } catch {}
+  try {
+    out.information = {};
+    for (const it of sm.information.items || []) {
+      if (it.title === 'In-App Purchases') { const seen = new Set(); out.inAppPurchases = []; for (const i of it.items || []) for (const [n, p] of i.textPairs || []) { const k = n + '|' + p; if (!seen.has(k)) { seen.add(k); out.inAppPurchases.push({ name: n, price: p.replace(/ /g, '') }); } } }
+      else out.information[it.title] = it.summary || (it.items || []).map(i => (i.heading ? i.heading + ': ' : '') + (i.text || '')).join(' | ');
+    }
+  } catch {}
+  try { out.privacy = (sm.privacyTypes.items || []).map(t => ({ type: t.title, categories: (t.categories || []).map(c => c.title || c.name) })); } catch {}
+  try { out.similar = (sm.similarItems.items || []).map(i => ({ id: i.id || (i.offerDisplayProperties || {}).adamId, name: i.title })).filter(x => x.name); } catch {}
+  try { out.featuredReviews = (sm.allProductReviews.items || []).map(i => i.review).filter(Boolean).map(r => ({ id: r.id, title: r.title, rating: r.rating, date: r.date, body: r.contents })); } catch {}
+  try { out.capabilities = (sm.capabilities.items || []).map(i => i.title).filter(Boolean); } catch {}
+  const sub = html.match(/<(?:p|h2) class="subtitle[^"]*"[^>]*>\s*([^<]+?)\s*<\/(?:p|h2)>/); if (sub) out.subtitle = sub[1].trim().replace(/&amp;/g, '&');
+  const watch = [...new Set([...html.matchAll(/https:\/\/is\d-ssl\.mzstatic\.com\/image\/thumb\/[^"\s]*?\/[^"\s]*?(?:[Ww]atch)[^"\s]*?\/\d+x\d+bb\.(?:png|jpg)/g)].map(m => m[0]))];
+  if (watch.length) out.watchScreenshotUrls = watch;
+  return out;
+}
+async function reviewsAll(id, cc = 'us', { max = 5000, sorts = [4, 1] } = {}) {
+  // Legacy iTunes reviews endpoint. Returns every written review. sort: 1 helpful, 2 favorable, 3 critical, 4 recent
+  const sf = STOREFRONT[cc]; if (!sf) throw new Error('unknown country ' + cc);
+  const H = { 'X-Apple-Store-Front': `${sf},29`, 'User-Agent': UA_ITUNES };
+  let total = null;
+  try { const m = await httpJSON(`https://itunes.apple.com/WebObjects/MZStore.woa/wa/customerReviews?id=${id}&displayable-kind=11&page=1&sort=4`, { headers: H, label: 'reviews:total', ttl: 6 * 3600 * 1000 }); total = m.totalNumberOfReviews; } catch {}
+  const all = new Map();
+  for (const sort of sorts) {
+    for (let start = 0; start < max; start += 100) {
+      const d = await httpJSON(`https://itunes.apple.com/WebObjects/MZStore.woa/wa/userReviewsRow?id=${id}&displayable-kind=11&startIndex=${start}&endIndex=${start + 100}&sort=${sort}`, { headers: H, label: 'reviews', ttl: 6 * 3600 * 1000 });
+      const l = d.userReviewList || []; if (!l.length) break;
+      for (const r of l) all.set(r.userReviewId, r);
+      if (total != null && all.size >= total) break;
+    }
+    if (total != null && all.size >= total) break;
+  }
+  const revs = [...all.values()].map(r => ({ id: r.userReviewId, title: r.title, body: r.body, rating: r.rating, date: r.date.slice(0, 10), author: r.name, edited: !!r.isEdited, voteSum: r.voteSum || 0, voteCount: r.voteCount || 0, country: cc.toUpperCase(), developerReply: r.developerResponse ? r.developerResponse.body : null, developerReplyDate: r.developerResponse ? String(r.developerResponse.modified || '').slice(0, 10) : null }));
+  revs.sort((a, b) => b.date.localeCompare(a.date));
+  return { total, reviews: revs };
+}
+async function rssReviews(id, cc = 'us') { // fallback, may be empty
+  const out = [];
+  for (let p = 1; p <= 10; p++) {
+    const d = await httpJSON(`https://itunes.apple.com/${cc}/rss/customerreviews/page=${p}/id=${id}/sortby=mostrecent/json`, { label: 'reviews:rss', ttl: 6 * 3600 * 1000 });
+    const e = d.feed.entry; if (!e) break;
+    for (const x of (Array.isArray(e) ? e : [e])) out.push({ id: x.id.label, title: x.title.label, body: x.content.label, rating: +x['im:rating'].label, date: x.updated.label.slice(0, 10), author: x.author.name.label, version: x['im:version'].label, country: cc.toUpperCase() });
+  }
+  return out;
+}
+
+// ---------- resolve app ids ----------
+async function resolve(input, cc = 'us') {
+  const s = String(input).trim();
+  const m = s.match(/id(\d{6,})/) || s.match(/^(\d{6,})$/);
+  if (m) return { id: Number(m[1]) };
+  const r = await search(s, cc, 5);
+  if (!r.length) throw new Error('no app found for "' + s + '"');
+  return { id: r[0].trackId, matches: r.map(a => ({ id: a.trackId, name: a.trackName, ratings: a.userRatingCount })) };
+}
+
+// ---------- commands ----------
+async function cmdFind(o, run) {
+  const cc = (o.country || 'us').split(',')[0];
+  const terms = (o.terms || o._.join(' ')).split('|').map(s => s.trim()).filter(Boolean);
+  const must = o.must ? o.must.split('|').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+  const top = +(o.top || 8);
+  const apps = new Map(), hits = {};
+  for (const t of terms) {
+    const r = await search(t, cc, 25);
+    r.forEach((a, i) => { apps.set(a.trackId, a); (hits[a.trackId] = hits[a.trackId] || []).push({ term: t, position: i + 1 }); });
+    log(`search "${t}": ${r.length}`);
+  }
+  const rel = a => !must.length || must.some(w => (a.trackName + ' ' + a.description).toLowerCase().includes(w));
+  let cands = [...apps.values()].filter(rel).map(a => ({ ...a, _hits: hits[a.trackId], _source: 'search' }));
+  const excl = o.exclude ? o.exclude.split('|').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+  cands = cands.filter(a => !excl.some(w => a.trackName.toLowerCase().includes(w)));
+  const score = a => a._hits.length * Math.log10(a.userRatingCount + 100);
+  cands.sort((x, y) => score(y) - score(x));
+  // similar-apps hop from the top 3
+  const hop = [];
+  for (const a of cands.slice(0, 3)) {
+    try { const pg = await storePage(a.trackId, cc); for (const s of pg.similar || []) if (s.id && !apps.has(+s.id)) hop.push({ id: +s.id, from: a.trackName }); } catch (e) { log('similar hop failed', a.trackName, String(e)); }
+  }
+  for (const h of hop.slice(0, 12)) {
+    try { const a = await lookup(h.id, cc); if (a && rel(a) && !apps.has(a.trackId)) { apps.set(a.trackId, a); cands.push({ ...a, _hits: [], _source: 'similar to ' + h.from }); } } catch {}
+  }
+  // charts for the dominant genre
+  const genre = {}; for (const a of cands.slice(0, 10)) genre[a.primaryGenreId] = (genre[a.primaryGenreId] || 0) + 1;
+  const gid = Object.entries(genre).sort((a, b) => b[1] - a[1])[0]?.[0];
+  let free = [], gross = [];
+  if (gid) { try { free = await chart('topfreeapplications', gid, cc); gross = await chart('topgrossingapplications', gid, cc); } catch (e) { log('charts failed', String(e)); } }
+  const rankIn = (list, id) => (list.find(x => +x.id === id) || {}).rank || null;
+  const shortlist = cands.map(a => ({ id: a.trackId, name: a.trackName, seller: a.sellerName, rating: +a.averageUserRating.toFixed(2), ratings: a.userRatingCount, price: a.formattedPrice, genre: a.primaryGenreName, version: a.version, updated: a.currentVersionReleaseDate.slice(0, 10), released: a.releaseDate.slice(0, 10), topFreeRank: rankIn(free, a.trackId), topGrossingRank: rankIn(gross, a.trackId), hits: a._hits.map(h => `${h.term} #${h.position}`), source: a._source }));
+  const out = { idea: o.idea || terms.join(', '), country: cc, terms, must, genreId: gid, shortlist, chartsTop10: { free: free.slice(0, 10), grossing: gross.slice(0, 10) } };
+  writeJSON(path.join(run, 'shortlist.json'), out);
+  fs.writeFileSync(path.join(run, 'shortlist.csv'), csv(shortlist, ['id', 'name', 'seller', 'rating', 'ratings', 'price', 'genre', 'updated', 'released', 'topFreeRank', 'topGrossingRank', 'source']));
+  console.log(JSON.stringify({ shortlist: shortlist.slice(0, top).map(s => ({ id: s.id, name: s.name, rating: s.rating, ratings: s.ratings, price: s.price, topFreeRank: s.topFreeRank, topGrossingRank: s.topGrossingRank, updated: s.updated, source: s.source, hits: s.hits })), totalCandidates: shortlist.length, file: path.join(run, 'shortlist.json') }, null, 1));
+  return out;
+}
+
+async function cmdProfile(o, run) {
+  const ccs = (o.country || 'us').split(',');
+  const full = !!o['full-images'];
+  const results = [];
+  for (const input of o._) {
+    const { id } = await resolve(input, ccs[0]);
+    const base = await lookup(id, ccs[0]); if (!base) { log('not found', input); continue; }
+    const dir = ensure(path.join(run, 'apps', `${slug(base.trackName)}-${id}`));
+    const meta = {}; const page = {};
+    for (const cc of ccs) {
+      try { meta[cc] = await lookup(id, cc); } catch (e) { meta[cc] = { error: String(e) }; }
+      try { page[cc] = await storePage(id, cc); } catch (e) { page[cc] = { error: String(e) }; }
+    }
+    writeJSON(path.join(dir, 'meta.json'), meta); writeJSON(path.join(dir, 'page.json'), page);
+    // images
+    const sdir = ensure(path.join(dir, 'screenshots'));
+    const save = async (name, url) => { try { fs.writeFileSync(path.join(sdir, name), await http(url, { binary: true, label: 'image', ttl: 30 * 86400000 })); } catch (e) { log('image failed', name); } };
+    await save('icon.png', base.artworkUrl512 || base.artworkUrl100);
+    const size = full ? '0x0ss.png' : '392x696bb.jpg';
+    let i = 0; for (const u of base.screenshotUrls || []) await save(`iphone-${String(++i).padStart(2, '0')}.${full ? 'png' : 'jpg'}`, u.replace(/\/[^/]+$/, '/' + size));
+    i = 0; for (const u of base.ipadScreenshotUrls || []) await save(`ipad-${String(++i).padStart(2, '0')}.${full ? 'png' : 'jpg'}`, u.replace(/\/[^/]+$/, '/' + (full ? '0x0ss.png' : '576x768bb.jpg')));
+    i = 0; for (const u of (page[ccs[0]].watchScreenshotUrls || []).slice(0, 10)) await save(`watch-${String(++i).padStart(2, '0')}.png`, u);
+    try { const dev = await lookupDeveloper(base.artistId, ccs[0]); writeJSON(path.join(dir, 'developer-apps.json'), dev.map(a => ({ id: a.trackId, name: a.trackName, ratings: a.userRatingCount, rating: a.averageUserRating }))); } catch {}
+    const p0 = page[ccs[0]];
+    results.push({ id, name: base.trackName, subtitle: p0.subtitle || null, seller: base.sellerName, developer: base.artistName, price: base.formattedPrice, rating: +base.averageUserRating.toFixed(2), ratings: base.userRatingCount, histogram: p0.histogram, chart: p0.chart || null, inAppPurchases: p0.inAppPurchases || [], privacy: p0.privacy, version: base.version, updated: base.currentVersionReleaseDate.slice(0, 10), released: base.releaseDate.slice(0, 10), sizeMB: Math.round(base.fileSizeBytes / 1048576), minimumOs: base.minimumOsVersion, languages: base.languageCodesISO2A, genre: base.primaryGenreName, similar: (p0.similar || []).map(s => s.name), screenshots: fs.readdirSync(sdir).length, releaseNotes: base.releaseNotes, description: base.description, dir });
+    log('profiled', base.trackName);
+  }
+  writeJSON(path.join(run, 'profiles.json'), results);
+  console.log(JSON.stringify(results.map(({ description, releaseNotes, ...r }) => r), null, 1));
+  return results;
+}
+
+async function cmdReviews(o, run) {
+  const ccs = (o.country || 'us').split(',');
+  const since = o.since || null;
+  const summary = [];
+  for (const input of o._) {
+    const { id } = await resolve(input, ccs[0]);
+    const base = await lookup(id, ccs[0]);
+    const dir = ensure(path.join(run, 'apps', `${slug(base.trackName)}-${id}`));
+    let all = []; const totals = {};
+    for (const cc of ccs) {
+      try { const { total, reviews } = await reviewsAll(id, cc); totals[cc] = { expected: total, fetched: reviews.length, route: 'legacy' }; all = all.concat(reviews); }
+      catch (e) { log('legacy reviews failed', cc, String(e)); try { const r = await rssReviews(id, cc); totals[cc] = { expected: null, fetched: r.length, route: 'rss' }; all = all.concat(r); } catch (e2) { totals[cc] = { error: String(e2) }; } }
+    }
+    if (since) all = all.filter(r => r.date >= since);
+    all.sort((a, b) => b.date.localeCompare(a.date));
+    writeJSON(path.join(dir, 'reviews.json'), { app: base.trackName, id, totals, reviews: all });
+    fs.writeFileSync(path.join(dir, 'reviews.csv'), csv(all, ['id', 'date', 'country', 'rating', 'title', 'body', 'author', 'edited', 'voteSum', 'voteCount', 'developerReply', 'developerReplyDate']));
+    const cut = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    const r90 = all.filter(r => r.date >= cut), neg90 = r90.filter(r => r.rating <= 2);
+    const byStar = [1, 2, 3, 4, 5].reduce((m, s) => (m[s] = all.filter(r => r.rating === s).length, m), {});
+    summary.push({ id, name: base.trackName, totals, reviews: all.length, byStar, last90: r90.length, negativeLast90: neg90.length, developerReplies: all.filter(r => r.developerReply).length, oldest: all.at(-1)?.date, newest: all[0]?.date, dir });
+    log('reviews', base.trackName, all.length);
+  }
+  writeJSON(path.join(run, 'reviews-summary.json'), summary);
+  console.log(JSON.stringify(summary, null, 1));
+  return summary;
+}
+
+// ---------- report ----------
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function cmdReport(o, run) {
+  const short = readJSON(path.join(run, 'shortlist.json'));
+  const profiles = readJSON(path.join(run, 'profiles.json')) || [];
+  const rsum = readJSON(path.join(run, 'reviews-summary.json')) || [];
+  const verdicts = readJSON(path.join(run, 'verdicts.json')) || {};
+  const title = (readJSON(path.join(run, 'run.json')) || {}).title || short?.idea || profiles[0]?.name || 'App research';
+  const allReviews = [];
+  for (const p of profiles) { const rj = readJSON(path.join(p.dir, 'reviews.json')); if (rj) for (const r of rj.reviews) allReviews.push({ a: p.name, t: r.title, b: r.body, s: r.rating, d: r.date, c: r.country, dr: r.developerReply || undefined, dd: r.developerReplyDate || undefined, v: r.voteSum || 0 }); }
+  const rel = p => path.relative(run, p).split(path.sep).join('/');
+  const V = k => verdicts[k] ? `<p class="verdict">${esc(verdicts[k])}</p>` : '';
+  const shots = p => { const d = path.join(p.dir, 'screenshots'); return fs.existsSync(d) ? fs.readdirSync(d).filter(f => f.startsWith('iphone')).map(f => `<img src="${rel(path.join(d, f))}" alt="" loading="lazy">`).join('') : ''; };
+  const hist = h => { if (!h) return ''; const tot = Object.values(h).reduce((a, b) => a + b, 0) || 1; return `<div class="hist">${[5, 4, 3, 2, 1].map(s => `<span>${s}★</span><div class="bar"><i style="width:${(100 * h[s] / tot).toFixed(1)}%"></i></div><span class="pct">${Math.round(h[s]).toLocaleString()} · ${Math.round(100 * h[s] / tot)}%</span>`).join('')}</div>`; };
+  const sec1 = short ? `<h2>1 · Is there a market? <small>search + similar apps + charts</small></h2>${V('market')}<div class="card"><div class="tw"><table><thead><tr><th>App</th><th class="n">Rating</th><th class="n">Ratings</th><th>Price</th><th class="n">Top Free</th><th class="n">Grossing</th><th>Updated</th><th>Since</th><th>Found via</th></tr></thead><tbody>${short.shortlist.map(s => `<tr><td><b>${esc(s.name)}</b><br><span class="dim">${esc(s.seller)}</span></td><td class="n">${s.rating}</td><td class="n">${s.ratings.toLocaleString()}</td><td>${esc(s.price)}</td><td class="n">${s.topFreeRank ? '#' + s.topFreeRank : '–'}</td><td class="n">${s.topGrossingRank ? '#' + s.topGrossingRank : '–'}</td><td>${s.updated}</td><td>${s.released.slice(0, 7)}</td><td class="dim">${esc(s.source === 'search' ? s.hits.join(', ') : s.source)}</td></tr>`).join('')}</tbody></table></div><p class="dim" style="margin:10px 0 0">Terms searched: ${short.terms.map(esc).join(' · ')}. Country: ${short.country.toUpperCase()}. Chart ranks are ${esc(short.shortlist[0]?.genre || 'category')} Top Free and Top Grossing.</p></div>` : '';
+  const sec3 = profiles.length ? `<h2>3 · How do they make money? <small>store page</small></h2>${V('money')}<div class="card"><div class="tw"><table><thead><tr><th>App</th><th>Price</th><th>In-app purchases</th></tr></thead><tbody>${profiles.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.price)}</td><td>${p.inAppPurchases.length ? p.inAppPurchases.map(i => `${esc(i.name)} <b>${esc(i.price)}</b>`).join('<br>') : '<span class="dim">none listed, monetized outside the App Store</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : '';
+  const sec5 = rsum.length ? `<h2>5 · Where are they failing? <small>every review, legacy endpoint</small></h2>${V('failing')}<div class="card"><div class="tw"><table><thead><tr><th>App</th><th class="n">Reviews</th><th class="n">1★</th><th class="n">5★</th><th class="n">Last 90 days</th><th class="n">1–2★ share, 90d</th><th class="n">Developer replies</th></tr></thead><tbody>${rsum.map(r => `<tr><td><b>${esc(r.name)}</b></td><td class="n">${r.reviews.toLocaleString()}</td><td class="n">${r.byStar[1]}</td><td class="n">${r.byStar[5]}</td><td class="n">${r.last90}</td><td class="n">${r.last90 ? Math.round(100 * r.negativeLast90 / r.last90) + '%' : '–'}</td><td class="n">${r.developerReplies}</td></tr>`).join('')}</tbody></table></div></div>` : '';
+  const secP = profiles.length ? `<h2>2 · Who am I competing with? <small>lookup + store page</small></h2>${V('competitors')}${profiles.map(p => `<div class="card prof"><div class="ph"><img class="icon" src="${rel(path.join(p.dir, 'screenshots', 'icon.png'))}" alt=""><div><b class="pn">${esc(p.name)}</b>${p.subtitle ? `<div class="sub">${esc(p.subtitle)}</div>` : ''}<div class="dim">${esc(p.developer)} · ${esc(p.genre)} · since ${p.released} · v${esc(p.version)} on ${p.updated} · ${p.sizeMB} MB · iOS ${esc(p.minimumOs)}+</div></div></div><div class="snap"><div><div class="v">${p.rating}</div><div class="l">${p.ratings.toLocaleString()} ratings</div></div><div><div class="v">${p.chart ? '#' + p.chart.position : '–'}</div><div class="l">${p.chart ? esc(p.chart.category) : 'not charting'}</div></div><div><div class="v">${esc(p.price)}</div><div class="l">${p.inAppPurchases.length ? p.inAppPurchases.length + ' in-app purchases' : 'no IAP'}</div></div><div><div class="v">${p.screenshots}</div><div class="l">images saved</div></div></div><div class="shots">${shots(p)}</div>${hist(p.histogram)}<details><summary>Description</summary><p class="desc">${esc(p.description).replace(/\n/g, '<br>')}</p></details>${p.releaseNotes ? `<details><summary>What's new in ${esc(p.version)}</summary><p class="desc">${esc(p.releaseNotes).replace(/\n/g, '<br>')}</p></details>` : ''}<div class="dim" style="margin-top:8px">Privacy: ${(p.privacy || []).map(t => `${esc(t.type)}: ${t.categories.map(esc).join(', ') || 'none'}`).join(' · ')}</div><div class="dim">Apple's similar apps: ${p.similar.map(esc).join(', ')}</div></div>`).join('')}` : '';
+  const secR = allReviews.length ? `<h2>6 · Reviews explorer <small>${allReviews.length.toLocaleString()} reviews</small></h2>${V('reviews')}
+<div class="card"><input type="search" id="q" placeholder="search titles, bodies, developer replies"><div class="row" id="apps"></div><div class="row" id="stars"></div><div class="row"><button class="tog" id="dr">Has developer reply</button><select id="sort"><option value="recent">Most recent</option><option value="oldest">Oldest</option><option value="helpful">Most helpful</option><option value="low">Lowest stars</option><option value="high">Highest stars</option></select><button class="tog" id="clear">Clear</button></div><div class="count" id="count"></div><div class="list" id="list"></div><button class="more" id="more" hidden>Show 50 more</button></div>
+<script>const D=${JSON.stringify(allReviews).replace(/</g, '\\u003c')};const $=s=>document.querySelector(s);let st={apps:new Set(),stars:new Set(),dr:false,q:'',sort:'recent',n:50};const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));const hl=(s,q)=>q?esc(s).replace(new RegExp('('+q.replace(/[.*+?^\${}()|[\\]\\\\]/g,'\\\\$&')+')','ig'),'<mark>$1</mark>'):esc(s);
+const APPS=[...new Set(D.map(r=>r.a))];function togs(el,items,set,label){el.innerHTML='';for(const it of items){const b=document.createElement('button');b.className='tog'+(set.has(it)?' on':'');b.textContent=label(it);b.onclick=()=>{set.has(it)?set.delete(it):set.add(it);st.n=50;render();};el.appendChild(b);}}
+function filt(){const q=st.q.trim().toLowerCase();let a=D.filter(r=>(!st.apps.size||st.apps.has(r.a))&&(!st.stars.size||st.stars.has(r.s))&&(!st.dr||r.dr)&&(!q||(r.t+' '+r.b+' '+(r.dr||'')).toLowerCase().includes(q)));const f={recent:(x,y)=>y.d.localeCompare(x.d),oldest:(x,y)=>x.d.localeCompare(y.d),helpful:(x,y)=>(y.v-x.v)||y.d.localeCompare(x.d),low:(x,y)=>(x.s-y.s)||y.d.localeCompare(x.d),high:(x,y)=>(y.s-x.s)||y.d.localeCompare(x.d)}[st.sort];return a.sort(f);}
+function render(){togs($('#apps'),APPS,st.apps,a=>a+' ('+D.filter(r=>r.a===a).length+')');togs($('#stars'),[5,4,3,2,1],st.stars,s=>s+'★ ('+D.filter(r=>r.s===s&&(!st.apps.size||st.apps.has(r.a))).length+')');$('#dr').classList.toggle('on',st.dr);const a=filt(),q=st.q.trim();$('#count').innerHTML='<b>'+a.length.toLocaleString()+'</b> of '+D.length.toLocaleString()+' reviews'+(q?' matching “'+esc(q)+'”':'');const el=$('#list');el.innerHTML='';for(const r of a.slice(0,st.n)){const d=document.createElement('article');d.className='rev';d.innerHTML='<div class="top"><span class="stars s'+r.s+'">'+'★'.repeat(r.s)+'☆'.repeat(5-r.s)+'</span><h4>'+hl(r.t,q)+'</h4><span class="meta">'+esc(r.a)+' · '+r.d+' · '+r.c+(r.v?' · '+r.v+' helpful':'')+'</span></div><p>'+hl(r.b,q)+'</p>'+(r.dr?'<div class="drp"><b>Developer reply · '+(r.dd||'')+'</b>'+hl(r.dr,q)+'</div>':'');el.appendChild(d);}$('#more').hidden=a.length<=st.n;$('#more').textContent='Show 50 more ('+(a.length-st.n)+' left)';}
+$('#q').oninput=e=>{st.q=e.target.value;st.n=50;render();};$('#sort').onchange=e=>{st.sort=e.target.value;render();};$('#dr').onclick=()=>{st.dr=!st.dr;render();};$('#clear').onclick=()=>{st={apps:new Set(),stars:new Set(),dr:false,q:'',sort:'recent',n:50};$('#q').value='';$('#sort').value='recent';render();};$('#more').onclick=()=>{st.n+=50;render();};render();</script>` : '';
+  const provRows = (readJSON(path.join(run, 'provenance.json')) || []).map(p => `<tr><td>${esc(p.label)}</td><td class="n">${p.calls}</td><td class="n">${p.cached}</td><td class="n">${p.failed}</td></tr>`).join('');
+  const sec7 = `<h2>7 · Provenance <small>which endpoint answered</small></h2><div class="card"><div class="tw"><table><thead><tr><th>Source</th><th class="n">Calls</th><th class="n">From cache</th><th class="n">Failed</th></tr></thead><tbody>${provRows}</tbody></table></div><p class="dim" style="margin:10px 0 0">Fetched ${today()}. Not available from any public source: downloads, revenue, retention, individual ratings without text, version history beyond the current release.</p></div>`;
+  const html = `<title>${esc(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--ground:#F6F7FA;--paper:#fff;--panel:#EDF0F5;--ink:#14171F;--ink-2:#4A5163;--ink-3:#7C8397;--line:#D9DDE6;--accent:#3437B8;--accent-soft:#E6E7F9;--good:#1E7B4F;--good-soft:#E1F3E9;--warn:#A15E0A;--warn-soft:#FBEED8;--bad:#B3342E;--bad-soft:#F9E3E1;--display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}.wrap{max-width:920px;margin:0 auto;padding:40px 24px 80px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}h1{font-family:var(--display);font-weight:700;font-size:38px;line-height:1.05;letter-spacing:-.02em;margin:10px 0 8px}.dek{color:var(--ink-2);max-width:66ch;margin:0}
+h2{font-family:var(--display);font-weight:700;font-size:23px;letter-spacing:-.01em;margin:44px 0 8px;padding-top:16px;border-top:2px solid var(--ink)}h2 small{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;margin-left:10px;vertical-align:middle}
+.verdict{margin:0 0 12px;padding:12px 14px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;font-size:15px;max-width:70ch}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-top:12px}.dim{color:var(--ink-3);font-size:12.5px}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}th{text-align:left;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:6px 10px 8px;border-bottom:1px solid var(--line)}td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}td.n,th.n{text-align:right}
+.ph{display:flex;gap:14px;align-items:center}.icon{width:64px;height:64px;border-radius:15px;border:1px solid var(--line)}.pn{font-family:var(--display);font-size:20px;font-weight:700}.sub{color:var(--ink-2)}
+.snap{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}.snap div{border-left:2px solid var(--line);padding-left:10px}.snap .v{font-family:var(--display);font-weight:700;font-size:20px;font-variant-numeric:tabular-nums}.snap .l{font-size:12px;color:var(--ink-3)}
+.shots{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px}.shots img{height:220px;width:auto;border-radius:8px;border:1px solid var(--line);flex:none}
+.hist{display:grid;grid-template-columns:28px 1fr 100px;gap:5px 10px;align-items:center;font-size:13px;margin-top:6px}.hist .bar{height:8px;background:var(--panel);border-radius:3px;overflow:hidden}.hist .bar i{display:block;height:100%;background:var(--accent)}.hist .pct{text-align:right;color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+details{margin-top:8px}summary{cursor:pointer;font-size:13.5px;color:var(--accent)}.desc{font-size:13.5px;color:var(--ink-2);max-width:70ch}
+input[type=search]{font:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;width:100%;background:var(--ground);color:var(--ink)}.row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.tog{font:inherit;font-size:12.5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--paper);color:var(--ink-2);cursor:pointer}.tog.on{background:var(--ink);color:#fff;border-color:var(--ink)}select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.count{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin:14px 0 8px}.list{display:flex;flex-direction:column;gap:8px}.rev{border:1px solid var(--line);border-radius:8px;padding:12px 14px}.rev .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.stars{font-family:var(--mono);font-size:12px;padding:2px 7px;border-radius:4px}.s5,.s4{background:var(--good-soft);color:var(--good)}.s3{background:var(--warn-soft);color:var(--warn)}.s2,.s1{background:var(--bad-soft);color:var(--bad)}.rev h4{margin:0;font-size:14.5px;flex:1 1 auto}.meta{font-family:var(--mono);font-size:11px;color:var(--ink-3)}.rev p{margin:6px 0 0;font-size:13.5px;color:var(--ink-2);white-space:pre-wrap}
+.drp{margin-top:8px;padding:8px 12px;border-left:3px solid var(--good);background:var(--good-soft);border-radius:0 6px 6px 0;font-size:13px}.drp b{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--good);font-weight:500}mark{background:#FFE58A;color:inherit}
+.more{display:block;margin:14px auto 0;font:inherit;padding:9px 16px;border:1px solid var(--line);border-radius:8px;background:var(--paper);cursor:pointer}
+@media(max-width:640px){h1{font-size:30px}.snap{grid-template-columns:1fr 1fr}.shots img{height:180px}}
+</style>
+<div class="wrap"><div class="eyebrow">appstore research · ${today()}</div><h1>${esc(title)}</h1><p class="dek">${esc((readJSON(path.join(run, 'run.json')) || {}).summary || 'Public App Store data, fetched with no account. Every number links back to an Apple endpoint. Verdicts are written from the data below them.')}</p>
+${sec1}${secP}${sec3}${sec5}${secR}${sec7}</div>`;
+  fs.writeFileSync(path.join(run, 'report.html'), html);
+  console.log(JSON.stringify({ report: path.join(run, 'report.html'), reviews: allReviews.length, profiles: profiles.length }));
+}
+
+function saveProvenance(run) {
+  const agg = {};
+  for (const p of prov) { const a = agg[p.label] = agg[p.label] || { label: p.label, calls: 0, cached: 0, failed: 0 }; a.calls++; if (p.status === 'cache') a.cached++; if (p.status === 'failed') a.failed++; }
+  const prev = readJSON(path.join(run, 'provenance.json')) || [];
+  for (const p of prev) { const a = agg[p.label] = agg[p.label] || { label: p.label, calls: 0, cached: 0, failed: 0 }; a.calls += p.calls; a.cached += p.cached; a.failed += p.failed; }
+  writeJSON(path.join(run, 'provenance.json'), Object.values(agg));
+  fs.appendFileSync(path.join(run, 'fetch-log.jsonl'), prov.map(p => JSON.stringify({ t: new Date().toISOString(), ...p })).join('\n') + (prov.length ? '\n' : ''));
+}
+
+async function main() {
+  const [cmd, ...rest] = process.argv.slice(2);
+  const o = parseArgs(rest);
+  const runName = o.run || `${today()}-${slug(o.idea || o._.join(' ') || cmd)}`;
+  const run = ensure(path.join(DATA, 'runs', runName));
+  if (!fs.existsSync(path.join(run, 'run.json'))) writeJSON(path.join(run, 'run.json'), { created: new Date().toISOString(), title: o.title || o.idea || o._.join(' ') });
+  try {
+    if (cmd === 'find') await cmdFind(o, run);
+    else if (cmd === 'profile') await cmdProfile(o, run);
+    else if (cmd === 'reviews') await cmdReviews(o, run);
+    else if (cmd === 'report') cmdReport(o, run);
+    else if (cmd === 'hints') { for (const t of o._) console.log(JSON.stringify({ term: t, suggestions: await hints(t, (o.country || 'us').split(',')[0]) })); }
+    else if (cmd === 'run') {
+      const f = await cmdFind(o, run);
+      const top = o.pick ? String(o.pick).split(',').map(s => s.trim()) : f.shortlist.slice(0, +(o.top || 5)).map(s => String(s.id));
+      await cmdProfile({ ...o, _: top }, run);
+      await cmdReviews({ ...o, _: top }, run);
+      saveProvenance(run); cmdReport(o, run);
+    }
+    else { console.log(`usage: appstore.js <find|profile|reviews|report|run|hints> ... [--run name] [--country us,in] [--terms "a|b|c"] [--must "w|x"] [--top 5] [--exclude "coinbase|binance"] [--pick id,id] [--full-images]\ndata dir: ${DATA}`); return; }
+    saveProvenance(run);
+    log('run folder:', run);
+  } catch (e) { saveProvenance(run); console.error('ERROR', e.message); process.exit(1); }
+}
+main();
