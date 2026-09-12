@@ -30,13 +30,13 @@ Node 18 or newer is the only requirement.
 Claude Code:
 
 ```bash
-git clone https://github.com/iam-joey/appstore-skill ~/.claude/skills/appstore
+git clone https://github.com/iam-joey/app-store-research ~/.claude/skills/appstore
 ```
 
 Codex:
 
 ```bash
-git clone https://github.com/iam-joey/appstore-skill ~/.codex/skills/appstore
+git clone https://github.com/iam-joey/app-store-research ~/.codex/skills/appstore
 ```
 
 Then talk to your agent. Data lands in `~/appstore-data/runs/<name>/` as JSON and CSV, plus `report.html`.
