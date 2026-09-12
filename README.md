@@ -25,19 +25,29 @@ Not available anywhere public, so never shown: downloads, revenue, retention, ke
 
 ## Install
 
-Node 18 or newer is the only requirement.
+Node 18 or newer is the only requirement. The skill follows the [Agent Skills](https://agentskills.io) format, so any agent that reads `SKILL.md` can use it.
 
-Claude Code:
-
-```bash
-git clone https://github.com/iam-joey/app-store-research ~/.claude/skills/appstore
-```
-
-Codex:
+With the skills CLI, for Claude Code and Codex at once:
 
 ```bash
-git clone https://github.com/iam-joey/app-store-research ~/.codex/skills/appstore
+npx skills add iam-joey/app-store-research --skill app-store-research --global --yes
 ```
+
+Or clone and link by hand:
+
+```bash
+git clone https://github.com/iam-joey/app-store-research ~/app-store-research
+```
+
+```bash
+ln -s ~/app-store-research/skills/app-store-research ~/.claude/skills/app-store-research
+```
+
+```bash
+ln -s ~/app-store-research/skills/app-store-research ~/.agents/skills/app-store-research
+```
+
+Codex also reads `~/.codex/skills/`, and both agents read a project-level `.claude/skills/` or `.agents/skills/` folder.
 
 Then talk to your agent. Data lands in `~/appstore-data/runs/<name>/` as JSON and CSV, plus `report.html`.
 
@@ -48,7 +58,7 @@ One page per run. Sections appear as the data does: candidates, app profiles wit
 ## Running it by hand
 
 ```bash
-node scripts/appstore.js run --idea "memecoin trading" --terms "memecoin|meme coin trading|solana memecoin" --must "meme" --top 5 --run memecoin
+node skills/app-store-research/scripts/appstore.js run --idea "memecoin trading" --terms "memecoin|meme coin trading|solana memecoin" --must "meme" --top 5 --run memecoin
 ```
 
 | Command | Does |
@@ -64,6 +74,17 @@ node scripts/appstore.js run --idea "memecoin trading" --terms "memecoin|meme co
 | `hints "<term>"` | Apple's autocomplete for a term |
 
 Options: `--run <name>`, `--country us,in`, `--top 5`, `--exclude "coinbase"`, `--pick id,id`, `--full-images`.
+
+## Layout
+
+```
+skills/app-store-research/
+├── SKILL.md              instructions the agent loads
+├── scripts/appstore.js   the engine
+├── scripts/report.js     builds report.html
+├── references/outputs.md every file each command writes
+└── agents/openai.yaml    Codex metadata
+```
 
 ## Data sources
 

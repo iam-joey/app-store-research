@@ -1,0 +1,6 @@
+interface:
+  display_name: "App Store research"
+  short_description: "Competitors, pricing, reviews and search terms for any iOS app or idea, from public Apple data."
+  default_prompt: "Research the App Store competition for my app idea."
+policy:
+  allow_implicit_invocation: true

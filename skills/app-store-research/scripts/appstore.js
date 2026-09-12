@@ -375,9 +375,36 @@ function saveProvenance(run) {
   fs.appendFileSync(path.join(run, 'fetch-log.jsonl'), prov.map(p => JSON.stringify({ t: new Date().toISOString(), ...p })).join('\n') + (prov.length ? '\n' : ''));
 }
 
+const USAGE = `appstore.js — App Store research from Apple's public endpoints. Node 18+, no dependencies.
+
+usage: node appstore.js <command> [inputs] [options]
+
+commands
+  run       --idea "text" --terms "a|b|c" [--must "w"] [--top 5]   find + profile + reviews + compare + keywords + report
+  find      --terms "a|b|c" [--must "w"] [--exclude "x"]          shortlist candidates for an idea, with chart ranks
+  profile   <link|id|name> ...                                    listing, IAPs, histogram, privacy, screenshots
+  reviews   <link|id|name> ... [--since 2026-01-01]               every written review with developer replies
+  compare   [--terms "withdraw|fees"]                             side by side table of the profiled apps
+  keywords  [--terms "a|b"]                                       search position per term per app, autocomplete
+  aso       <my link> [--vs "id|id"] [--terms "a|b"]              my title/subtitle words vs competitors, positions
+  refresh                                                         refetch the run and list what changed
+  report                                                          rebuild report.html
+  hints     "<term>" ...                                          Apple search autocomplete
+
+options
+  --run <name>        run folder name (default: date + inputs)
+  --country us,in     storefronts; the first is used for search and charts
+  --pick id,id        which shortlist entries to profile in run
+  --full-images       full-size screenshots
+
+inputs accept an apps.apple.com link, a numeric id, or an app name.
+data folder: {DATA}  (override with APPSTORE_DATA)
+`;
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const o = parseArgs(rest);
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') { console.log(USAGE.replace('{DATA}', DATA)); return; }
   const runName = o.run || `${today()}-${slug(o.idea || o._.join(' ') || cmd)}`;
   const run = ensure(path.join(DATA, 'runs', runName));
   if (!fs.existsSync(path.join(run, 'run.json'))) writeJSON(path.join(run, 'run.json'), { created: new Date().toISOString(), title: o.title || o.idea || o._.join(' ') });
@@ -401,7 +428,7 @@ async function main() {
       console.log = quiet;
       saveProvenance(run); cmdReport(o, run);
     }
-    else { console.log(`usage: appstore.js <run|find|profile|reviews|compare|keywords|aso|refresh|report|hints> ... [--run name] [--country us,in] [--terms "a|b|c"] [--must "w|x"] [--top 5] [--exclude "coinbase|binance"] [--pick id,id] [--vs "id|id"] [--full-images]\ndata dir: ${DATA}`); return; }
+    else { console.error('unknown command: ' + cmd + '\n'); console.log(USAGE.replace('{DATA}', DATA)); process.exit(2); }
     saveProvenance(run);
     log('run folder:', run);
   } catch (e) { saveProvenance(run); console.error('ERROR', e.message); process.exit(1); }

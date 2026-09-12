@@ -1,13 +1,18 @@
 ---
-name: appstore
+name: app-store-research
 description: App Store research for people building iOS apps, from public Apple data with no account or API key. Use this whenever the user shares an apps.apple.com link, names an iOS app, describes an app idea and wants to know the competition, asks what users complain about or love in an app, wants an app's reviews, pricing, in-app purchases, ratings, screenshots or chart position, wants to compare apps, asks which search terms apps show up for, or asks how to improve their own app's title, subtitle or App Store search ranking (ASO). Trigger even when the user never says "App Store" but clearly means iOS competitor research.
+license: MIT
+compatibility: Requires Node.js 18 or newer and internet access to apple.com. No packages, no API keys.
+metadata:
+  author: iam-joey
+  version: "0.1"
 ---
 
-# appstore
+# App Store research
 
-The engine is `scripts/appstore.js`: one Node 18+ file, no dependencies. Every command writes JSON into a run folder under `~/appstore-data/runs/<name>/` (override the root with `APPSTORE_DATA`) and regenerates `report.html` there. You read the folder and answer in chat. The page is for when the user wants one thing to open or share.
+The engine is `scripts/appstore.js` in this skill's folder: one Node 18+ file, no dependencies. Run it with `node scripts/appstore.js --help` first to see the usage. Every command writes JSON into a run folder under `~/appstore-data/runs/<name>/` (override the root with `APPSTORE_DATA`) and regenerates `report.html` there. You read the folder and answer in chat. The page is for when the user wants one thing to open or share.
 
-Run: `node scripts/appstore.js <command> ... --run <name>`. JSON goes to stdout, progress to stderr. Pick a short run name from the idea or app and reuse it for every follow-up, so the data accumulates in one folder.
+Run: `node <skill folder>/scripts/appstore.js <command> ... --run <name>`. JSON goes to stdout, progress to stderr. Pick a short run name from the idea or app and reuse it for every follow-up, so the data accumulates in one folder.
 
 ## Rules
 
@@ -48,6 +53,10 @@ The run folder is the source of truth. Use short Node one-liners over `apps/*/re
 ## Not available
 
 Downloads, revenue, retention, daily users, Apple's keyword popularity score, star ratings without text, version history before the current release, any app's hidden keyword field. Say so plainly when asked. Keyword positions come from Apple's Search API order for the storefront, which tracks App Store search closely but is not the same ranking users see with personalisation.
+
+## Output files
+
+[references/outputs.md](references/outputs.md) lists every file each command writes and what is in it. Read it when a follow-up question needs a field you have not seen.
 
 ## Storefronts
 
