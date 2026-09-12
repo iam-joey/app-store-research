@@ -1,95 +1,72 @@
-# appstore
+<p align="center">
+  <img src="assets/app-store.svg" width="112" alt="App Store">
+</p>
 
-An agent skill for people building iOS apps. Give Claude Code or Codex an App Store link or an app idea, and it fetches everything Apple shows publicly, then answers your questions in chat. Ask for a report when you want one page to open or share.
+<h1 align="center">App Store Research</h1>
 
-No account, no API key, no packages. One Node file that reads Apple's public endpoints.
-
-## What you can ask
-
-- "I want to build a habit tracker. Who am I up against?"
-- "Here's my app, what do people complain about?" with an apps.apple.com link
-- "How does Bevel make money?"
-- "Compare these five and tell me where they differ"
-- "Which search terms does Phantom show up for?"
-- "Fix my title and subtitle against these competitors"
-- "Anything changed since last week?"
-- "Give me the full report"
-
-Every answer uses fetched numbers and verbatim reviews. Nothing is estimated.
-
-## What it fetches
-
-Listing details, subtitle, price and every in-app purchase with its price, rating and the 5-to-1 star histogram, category chart position, privacy label, screenshots, Apple's "you might also like", and every written review with developer replies, from any storefront. Search positions for any term and Apple's search autocomplete. Top Free and Top Grossing charts.
-
-Not available anywhere public, so never shown: downloads, revenue, retention, keyword popularity scores.
+<p align="center">
+  Give your coding agent an App Store link or an app idea. It fetches what Apple shows publicly and answers your questions.<br>
+  No Apple account. No API key. No packages. Works in Claude Code and Codex.
+</p>
 
 ## Install
-
-Node 18 or newer is the only requirement. The skill follows the [Agent Skills](https://agentskills.io) format, so any agent that reads `SKILL.md` can use it.
-
-With the skills CLI, for Claude Code and Codex at once:
 
 ```bash
 npx skills add iam-joey/app-store-research --skill app-store-research --global --yes
 ```
 
-Or clone and link by hand:
+Needs Node 18 or newer. That's it.
 
-```bash
-git clone https://github.com/iam-joey/app-store-research ~/app-store-research
-```
+## Ask it things
 
-```bash
-ln -s ~/app-store-research/skills/app-store-research ~/.claude/skills/app-store-research
-```
+**"I want to build a memecoin trading app. Who am I up against?"**
 
-```bash
-ln -s ~/app-store-research/skills/app-store-research ~/.agents/skills/app-store-research
-```
+> 49 apps match. The five that matter: Phantom (4.8★, 64,210 ratings, #111 in Finance), Moonshot (4.2★, 28,702 ratings, 16% one-star), fomo (4.8★, 17,520 ratings, #27 in Finance), Hype (4.9★, 201 ratings), GMGN (3.7★, 87 ratings). All free to download, none sell in-app purchases.
 
-Codex also reads `~/.codex/skills/`, and both agents read a project-level `.claude/skills/` or `.agents/skills/` folder.
+**"What do people complain about in Bevel?"** with the App Store link
 
-Then talk to your agent. Data lands in `~/appstore-data/runs/<name>/` as JSON and CSV, plus `report.html`.
+> 951 written reviews, 263 in the last 90 days, 88 of those are 1 or 2 stars. The developer replied to 225. Most repeated complaint since June, verbatim:
+>
+> ★☆☆☆☆ 6 Jul 2026 · "Deceptive advertising… as expected. Downloaded because an ad said this app was free to use…"
 
-## The report
+**"Which search terms does Bevel show up for?"**
 
-One page per run. Sections appear as the data does: candidates, app profiles with screenshots, pricing, side by side, search terms, review signals, and a reviews explorer with search, Loved / Complaints, star, storefront and developer-reply filters. Plain HTML, opens anywhere, no server.
+> #1 for "ai health coach", #4 for "health coach", nowhere in the top 25 for "sleep", "recovery" or "hrv", even though its subtitle says "Exercise, Sleep & Nutrition".
 
-## Running it by hand
+**"Give me the report."**
 
-```bash
-node skills/app-store-research/scripts/appstore.js run --idea "memecoin trading" --terms "memecoin|meme coin trading|solana memecoin" --must "meme" --top 5 --run memecoin
-```
+> One `report.html` per run: candidates, profiles with screenshots, pricing, side by side, search terms, review signals, and every review with search and filters. Opens in any browser.
+
+Every number is fetched. Reviews are quoted word for word. Nothing is estimated.
+
+## What it can see
+
+Listing, subtitle, price, every in-app purchase and its price, rating and the star histogram, chart position, privacy label, screenshots, Apple's "you might also like", every written review with developer replies from any country, search positions for any term, Apple's search autocomplete, Top Free and Top Grossing charts.
+
+What it can't, because Apple doesn't publish it: downloads, revenue, retention, keyword popularity scores.
+
+## Commands
+
+The agent runs these for you. You can also run them by hand.
 
 | Command | Does |
 |---|---|
-| `find --terms "a\|b" --must "w"` | Shortlist candidates for an idea, with chart ranks |
-| `profile <link\|id\|name> ...` | Full listing per app, screenshots saved |
-| `reviews <link\|id\|name> ...` | Every written review with developer replies |
-| `compare --terms "withdraw\|fees"` | Side by side table, plus review mentions per word |
-| `keywords --terms "a\|b"` | Search position per term per app, Apple autocomplete |
-| `aso <my link> --vs "id\|id" --terms "a\|b"` | Your title and subtitle words vs competitors, positions per term |
-| `refresh` | Refetch a run and list what changed |
+| `run --idea "..." --terms "a\|b\|c"` | Idea to report in one go |
+| `find --terms "a\|b"` | Shortlist competitors |
+| `profile <link>` | Full listing, screenshots saved |
+| `reviews <link>` | Every written review |
+| `compare --terms "withdraw\|fees"` | Side by side, plus who mentions what |
+| `keywords --terms "a\|b"` | Search position per term per app |
+| `aso <my link> --vs "id\|id"` | Your title and subtitle against theirs |
+| `refresh` | What changed since last time |
 | `report` | Rebuild `report.html` |
-| `hints "<term>"` | Apple's autocomplete for a term |
 
-Options: `--run <name>`, `--country us,in`, `--top 5`, `--exclude "coinbase"`, `--pick id,id`, `--full-images`.
-
-## Layout
-
-```
-skills/app-store-research/
-├── SKILL.md              instructions the agent loads
-├── scripts/appstore.js   the engine
-├── scripts/report.js     builds report.html
-├── references/outputs.md every file each command writes
-└── agents/openai.yaml    Codex metadata
+```bash
+node skills/app-store-research/scripts/appstore.js --help
 ```
 
-## Data sources
-
-iTunes Lookup and Search APIs, the App Store web page's embedded data, the legacy iTunes reviews endpoint (all reviews, any storefront), RSS charts, and the search autocomplete endpoint. Responses are cached for 24 hours in `~/appstore-data/cache/`. Store pages are fetched no faster than one every 2.5 seconds because Apple rate-limits them.
+Data lives in `~/appstore-data/runs/<name>/` as JSON, CSV and `report.html`.
 
 ## License
 
-MIT
+MIT. The App Store icon belongs to Apple and is used here only to refer to the App Store.
