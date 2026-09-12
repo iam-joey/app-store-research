@@ -1,8 +1,8 @@
 # appstore
 
-App Store competitor research for people building iOS apps. Paste a link or describe an idea, get a research folder: every competitor's listing, pricing, in-app purchases, star histogram, chart rank, screenshots, and **every written review with the developer's replies**, plus a searchable report page.
+App Store competitor research for people building iOS apps. Give it a link or an idea and it writes a research folder: every competitor's listing, pricing, in-app purchases, star histogram, chart rank, screenshots, and **every written review with the developer's replies**, plus a searchable report page.
 
-No Apple developer account. No API keys. No packages to install. One Node file.
+It runs as one Node file with no packages, and it needs no Apple developer account or API key.
 
 ```
 node scripts/appstore.js run --idea "memecoin trading platform" \
@@ -58,7 +58,7 @@ All public Apple endpoints, fetched with a 24-hour cache and pacing so you never
 
 ## What it will never show
 
-Downloads, revenue, retention, or Apple's keyword popularity score. No public source exists, and this tool does not estimate. Top Free rank is the official download signal; Top Grossing rank is the App Store revenue signal.
+Downloads, revenue, retention, or Apple's keyword popularity score, because no public source publishes them and this tool does not estimate. Top Free rank is the official download signal; Top Grossing rank is the App Store revenue signal.
 
 ## License
 
