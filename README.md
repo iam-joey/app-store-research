@@ -19,31 +19,31 @@ Needs Node 18 or newer. That's it.
 
 ## Ask it things
 
-**"I want to build a memecoin trading app. Who am I up against?"**
+**"I want to build a habit tracker. Who am I up against?"**
 
-> 49 apps match. The five that matter: Phantom (4.8★, 64,210 ratings, #111 in Finance), Moonshot (4.2★, 28,702 ratings, 16% one-star), fomo (4.8★, 17,520 ratings, #27 in Finance), Hype (4.9★, 201 ratings), GMGN (3.7★, 87 ratings). All free to download, none sell in-app purchases.
+> 69 apps match. Top five by ratings: Me+ (247,840), Structured (165,685, #88 Top Free), Habit Tracker (146,641), Productive (91,085), Fabulous (88,914). All free to download.
 
-**"What do people complain about in Bevel?"** with the App Store link
+**"What do people complain about in Bevel?"** with the link
 
-> 951 written reviews, 263 in the last 90 days, 88 of those are 1 or 2 stars. The developer replied to 225. Most repeated complaint since June, verbatim:
->
-> ★☆☆☆☆ 6 Jul 2026 · "Deceptive advertising… as expected. Downloaded because an ad said this app was free to use…"
+> 88 of the last 263 reviews are 1 or 2 stars. Most helpful one, verbatim: "Downloaded because an ad said this app was free to use…"
 
 **"Which search terms does Bevel show up for?"**
 
-> #1 for "ai health coach", #4 for "health coach", nowhere in the top 25 for "sleep", "recovery" or "hrv", even though its subtitle says "Exercise, Sleep & Nutrition".
+> #1 for "ai health coach", #4 for "health coach", nowhere for "sleep" even though it's in the subtitle.
 
 **"Give me the report."**
 
-> One `report.html` per run: candidates, profiles with screenshots, pricing, side by side, search terms, review signals, and every review with search and filters. Opens in any browser.
+> One `report.html` with everything above plus every review, searchable. Opens in any browser.
 
 Every number is fetched. Reviews are quoted word for word. Nothing is estimated.
 
 ## What it can see
 
-Listing, subtitle, price, every in-app purchase and its price, rating and the star histogram, chart position, privacy label, screenshots, Apple's "you might also like", every written review with developer replies from any country, search positions for any term, Apple's search autocomplete, Top Free and Top Grossing charts.
+- Price, in-app purchases, rating histogram, chart position, privacy label, screenshots
+- Every written review with developer replies, from any country
+- Search position for any term, and Apple's search suggestions
 
-What it can't, because Apple doesn't publish it: downloads, revenue, retention, keyword popularity scores.
+Not downloads or revenue. Apple doesn't publish them, so it won't guess.
 
 ## Commands
 
