@@ -117,3 +117,14 @@ mark{background:var(--peach);color:inherit;padding:0 1px;border-radius:2px}
 .shots img{transition:transform .2s,box-shadow .2s} .shots a:hover img{transform:translateY(-2px);box-shadow:0 12px 24px -16px rgba(15,23,42,.35)}
 .search-box input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:0}
 button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* sidebar: plain */
+.brand{gap:10px;align-items:center} .brand img{width:26px;height:26px;border-radius:7px} .brand-name{font-size:14px;font-weight:600;letter-spacing:-.01em;line-height:1.2} .brand-name br{display:none} .brand em{font-family:var(--sans);font-style:normal;font-weight:400;color:var(--muted)}
+.brand-caption{margin-top:6px;font-size:12.5px;color:var(--muted)}
+.nav-label{display:none}
+.nav-link{display:flex;align-items:center;gap:0;padding:7px 10px;margin:1px -10px;border-radius:6px;font-size:13.5px;color:var(--body);background:transparent}
+.nav-link .icon,.nav-no{display:none}
+.nav-link:hover{background:var(--soft);color:var(--ink)}
+.nav-link.selected{background:var(--soft);color:var(--ink);font-weight:500;box-shadow:inset 2px 0 0 var(--ink)}
+.side-bottom{padding:0} .side-version{font-size:11px;color:var(--muted-2);letter-spacing:0;text-transform:none;font-family:var(--mono, ui-monospace, monospace)}
+.brand{display:flex;flex-direction:row;align-items:center;gap:10px;padding:4px 0 2px} .brand-name{white-space:nowrap;font-size:14px;line-height:1.2;display:inline} .brand em{font-size:14px;margin-left:4px}
+.brand-caption{margin:8px 0 18px}
