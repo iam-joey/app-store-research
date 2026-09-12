@@ -45,27 +45,15 @@ Every number is fetched. Reviews are quoted word for word. Nothing is estimated.
 
 Not downloads or revenue. Apple doesn't publish them, so it won't guess.
 
-## Commands
+## Under the hood
 
-The agent runs these for you. You can also run them by hand.
+One Node script fetches from Apple's public endpoints and saves everything to `~/appstore-data/runs/<name>/` as JSON, CSV and `report.html`. Your agent runs it for you.
 
-| Command | Does |
-|---|---|
-| `run --idea "..." --terms "a\|b\|c"` | Idea to report in one go |
-| `find --terms "a\|b"` | Shortlist competitors |
-| `profile <link>` | Full listing, screenshots saved |
-| `reviews <link>` | Every written review |
-| `compare --terms "withdraw\|fees"` | Side by side, plus who mentions what |
-| `keywords --terms "a\|b"` | Search position per term per app |
-| `aso <my link> --vs "id\|id"` | Your title and subtitle against theirs |
-| `refresh` | What changed since last time |
-| `report` | Rebuild `report.html` |
+To run it yourself:
 
 ```bash
 node skills/app-store-research/scripts/appstore.js --help
 ```
-
-Data lives in `~/appstore-data/runs/<name>/` as JSON, CSV and `report.html`.
 
 ## License
 
