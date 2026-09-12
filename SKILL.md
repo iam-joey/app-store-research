@@ -31,13 +31,22 @@ Run with `node scripts/appstore.js <command> ... --run <name>`. The script print
 
 `--terms` uses `|` as separator. `--must` keeps only apps whose name or description contains one of those words; use it to filter giants that match a generic term.
 
+## Report or terminal?
+
+The script writes `report.html` on every fetch; that is free. Decide only whether to point the user at it.
+
+- Research-shaped request (an idea, "tear down this app", "compare these", "what do users complain about"): the answer is the report. Write `verdicts.json`, run `report`, give the path, publish it if an artifact tool exists.
+- Fact-shaped request ("how many ratings does X have", "what does Y charge", "when was Z updated"): answer in one or two lines from the folder. Do not mention the report unless asked.
+- Follow-up on an existing run ("show me the withdrawal complaints"): quote the matching reviews in chat, then one line pointing to the explorer search that shows the rest.
+- The user can force either way with "make the report" or "just tell me".
+
 ## Workflow for an idea
 
 1. Turn the idea into 6 to 8 search terms a real person would type. Mix the exact phrase, two-word variants, and the category noun. Run `hints` on the two core terms first and add any suggestion that fits.
 2. Pick 1 to 3 `--must` words that a true competitor would have in its listing.
 3. `run` with `--top 5`. It takes 2 to 6 minutes depending on review counts. Apple rate-limits store page fetches; the script paces itself, so do not run two instances at once.
 4. Read `shortlist.json`, `profiles.json`, `reviews-summary.json`. Then read reviews: the newest 1 to 2 star reviews per app from `apps/*/reviews.json`, and the most helpful 5 star ones.
-5. Write `verdicts.json` in the run folder, then run `report`. Keys: `market`, `competitors`, `money`, `failing`, `reviews`. Each value is one to three sentences, every claim backed by a number or a quote from the folder. Example: `"failing": "Moonshot: 305 of 2,135 negative reviews mention withdrawals; 75% of its last-90-day reviews are 1 to 2 stars. fomo: fees and a missing slippage preview, 18 mentions since June."`
+5. Write `verdicts.json` in the run folder, then run `report`. Keys: `takeaway` (two or three sentences, the only paragraph on the page), then `market`, `competitors`, `money`, `failing`, `reviews`, each ONE sentence. Every claim backed by a number or a quote from the folder. Name the explorer search word that proves it, for example: search "withdraw". Example: `"failing": "Moonshot: 305 of 2,135 negative reviews mention withdrawals; 75% of its last-90-day reviews are 1 to 2 stars. fomo: fees and a missing slippage preview, 18 mentions since June."`
 6. Tell the user where `report.html` is. If an artifact tool is available, publish it with the run folder's `apps/**/screenshots/*` as supporting files so images render.
 
 ## Workflow for a link or app name

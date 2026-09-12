@@ -51,3 +51,12 @@ mark{background:#fbe1d1;color:inherit;padding:0 1px;border-radius:2px}
 .extra-content .extra summary::-webkit-details-marker{display:none}
 .extra-content .extra summary .icon{width:12px;height:12px}
 .extra-content .extra p{margin-top:8px}
+.extra.inline{margin-top:12px;border:0;padding:0;background:transparent}
+.extra.inline summary{font-size:12px;color:#777b86;padding:8px 0;display:flex;align-items:center;gap:6px;list-style:none}
+.extra.inline summary::-webkit-details-marker{display:none}
+.extra.inline summary .icon{width:12px;height:12px}
+.extra.inline[open] summary .icon{transform:rotate(90deg)}
+.prov-line{font-size:13.5px;color:#60636b;max-width:70ch;line-height:1.7}
+.money-table td{vertical-align:top} .money-table td:first-child{font-weight:500}
+.shots img{height:220px}
+.metric-value{white-space:nowrap}
