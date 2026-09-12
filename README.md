@@ -45,15 +45,23 @@ Every number is fetched. Reviews are quoted word for word. Nothing is estimated.
 
 Not downloads or revenue. Apple doesn't publish them, so it won't guess.
 
-## Under the hood
+## How to use it
 
-One Node script fetches from Apple's public endpoints and saves everything to `~/appstore-data/runs/<name>/` as JSON, CSV and `report.html`. Your agent runs it for you.
+Just ask. Any question about an iOS app, a competitor, or an app idea triggers the skill. To call it directly:
 
-To run it yourself:
+Claude Code:
 
-```bash
-node skills/app-store-research/scripts/appstore.js --help
 ```
+/app-store-research what do people complain about in https://apps.apple.com/us/app/id6456176249
+```
+
+Codex:
+
+```
+$app-store-research who are the top habit tracker apps and what do they charge
+```
+
+Data lands in `~/appstore-data/runs/<name>/`, with `report.html` next to it.
 
 ## License
 
