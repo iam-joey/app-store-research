@@ -27,10 +27,6 @@ Needs Node 18 or newer. That's it.
 
 > 88 of the last 263 reviews are 1 or 2 stars. Most helpful one, verbatim: "Downloaded because an ad said this app was free to use…"
 
-**"Which search terms does Bevel show up for?"**
-
-> #1 for "ai health coach", #4 for "health coach", nowhere for "sleep" even though it's in the subtitle.
-
 **"Give me the report."**
 
 > One `report.html` with everything above plus every review, searchable. Opens in any browser.
@@ -41,7 +37,6 @@ Every number is fetched. Reviews are quoted word for word. Nothing is estimated.
 
 - Price, in-app purchases, rating histogram, chart position, privacy label, screenshots
 - Every written review with developer replies, from any country
-- Search position for any term, and Apple's search suggestions
 
 Not downloads or revenue. Apple doesn't publish them, so it won't guess.
 

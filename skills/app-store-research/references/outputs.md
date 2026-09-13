@@ -1,59 +1,21 @@
-# What each command produces
+# Output files
 
-The skill has three kinds of output. Design the second one.
+Every command writes into the run folder `~/appstore-data/runs/<name>/` and rebuilds `report.html` there. Screenshots and per-app files live under `apps/<slug>-<id>/`.
 
-1. **Terminal text.** Every command prints a short JSON summary. Agents read it, humans mostly don't.
-2. **`report.html`.** One page per run, opened in any browser from the run folder. This is the visual product. It works the same in Claude Code, Codex, or a plain terminal.
-3. **Artifact.** Only in Claude Code. Claude publishes the same `report.html` to a shareable link. Nothing extra is designed for it. It is the same page.
+| Command | Writes | Contents |
+|---|---|---|
+| `find` | `shortlist.json`, `shortlist.csv` | `idea`, `country`, `terms`, `must`, `genreId`, `shortlist[]` (id, name, url, seller, rating, ratings, price, genre, version, updated, released, topFreeRank, topGrossingRank, hits, source), `chartsTop10` |
+| `profile` | `profiles.json`; per app `meta.json`, `page.json`, `developer-apps.json`, `screenshots/` | per app: id, name, url, subtitle, seller, developer, price, rating, ratings, histogram (5 to 1), chart {position, category}, inAppPurchases [{name, price}], privacy [{type, categories}], version, updated, released, sizeMB, minimumOs, languages, genre, similar, releaseNotes, description, dir |
+| `reviews` | `reviews-summary.json`; per app `reviews.json`, `reviews.csv` | summary per app: totals per country {expected, fetched, route}, reviews, byStar, last90, negativeLast90, developerReplies, oldest, newest. Each review: id, title, body, rating, date, author, edited, voteSum, voteCount, country, developerReply, developerReplyDate |
+| `compare` | `compare.json`, `compare.csv` | per app: rating, ratings, chart, price, iapCount, iapCheapest, monthly, yearly, lifetime, released, updated, version, sizeMB, minimumOs, languages, privacy {tracking, linked, notLinked, none}, reviews, last90, negativeLast90, negativePct, replies, replyPct, mentions per `--terms` word {reviews, negative, inDescription} |
+| `refresh` | `changes.json`, `history/<stamp>-*.json` | per app: changes [{field, from, to}] for rating, ratings, price, chart, version, updated, inAppPurchases; newReviews; negativeLast90 |
+| every command | `provenance.json`, `fetch-log.jsonl` | calls, cached and failed counts per endpoint; one line per request |
+| `report` | `report.html` | self-contained page. Sections appear when their file exists: Candidates, The app or Competitors, Pricing, Side by side, Review signals, Reviews |
 
-So: one page template, not one artifact per command. Sections appear only when the run has that data.
+## Counting reviews yourself
 
-## Per command
+`apps/*/reviews.json` is plain JSON. Example, 1-star reviews since June that mention a word:
 
-| Command | Terminal | Files | Page sections it adds | Artifact |
-|---|---|---|---|---|
-| `run "<idea>"` | shortlist summary, then progress | everything below | 1, 2, 3, 5, 6, 7 today; 4 after phase 2 | yes, the full page |
-| `find` | shortlist table | `shortlist.json`, `shortlist.csv` | 1 · Is there a market | no, terminal is enough |
-| `profile <app…>` | per-app summary | `apps/<app>/meta.json`, `page.json`, `screenshots/` | 2 · Competitors, 3 · Money | yes when the user asked to "look at" an app |
-| `reviews <app…>` | counts per app | `apps/<app>/reviews.json`, `.csv` | 5 · Where they fail, 6 · Reviews explorer | yes, the explorer is the point |
-| `compare <app…> --mine` | the table | `compare.csv` | 2 as a side-by-side, 4 · Features matrix | yes |
-| `keywords "<term>…"` | grid | `keywords.json` | 4 · How people find them | yes |
-| `aso <my app>` | audit + suggestions | `aso.json` | 4, second half · How to get found | yes |
-| `hints "<term>"` | list of suggestions | none | none | no |
-| `watch add/list/remove` | the list | `watchlist.json` | none | no |
-| `refresh --diff` | what changed | new dated run folder, `diff.json` | 8 · What changed since last week | yes |
-
-## The page, section by section
-
-Each section has a one-paragraph verdict at the top, written from the data under it, then the data.
-
-| # | Section | Answers | Shows | States to design |
-|---|---|---|---|---|
-| 1 | Is there a market? | enter or not | shortlist table, terms searched, chart ranks | 5 rows, 20 rows, one row |
-| 2 | Who am I competing with? | which to study | profile cards: icon, subtitle, snapshot numbers, screenshot strip, histogram, description, what's new, privacy, similar apps | one app, five apps; with and without subtitle, chart rank, IAP |
-| 3 | How do they make money? | pricing model | price + IAP table, fee sentences quoted from descriptions | apps with IAP, apps with none |
-| 4 | How do people find them? | name, subtitle, keywords | apps × terms grid, autocomplete lists, title and subtitle words, ASO audit when `--mine` | empty cells matter |
-| 5 | Where are they failing? | what to build first | per-app table: reviews, 1★, 5★, last 90 days, negative share, developer replies | one app, five apps |
-| 6 | Reviews explorer | read the raw material | search box, app chips, star chips, developer-reply toggle, sort, list with reply blocks | zero results, 50 of 4,000 |
-| 7 | Provenance | can I trust this | endpoint table with calls, cached, failed, and the not-available list | one row failed |
-| 8 | What changed | is it moving | deltas per app: ratings, rank, keyword positions, new reviews, new version | first run (nothing to diff) |
-
-Two page shapes cover everything:
-
-- **Idea run**: sections 1 through 7.
-- **Single app**: sections 2, 3, 5, 6, 7 for that one app. Same components, one column.
-
-Section 8 only appears on a refresh.
-
-## Rules the design must keep
-
-- Light theme only.
-- Every number is fetched. No estimate labels anywhere, because there are no estimates.
-- Reviews are verbatim, with stars, date, storefront, and the developer's reply.
-- Images are files next to the page, not embedded, so the page stays small and screenshots can be opened at full size.
-- Wide tables scroll inside their own box. The page never scrolls sideways.
-- The page reads correctly with no JavaScript except the reviews explorer.
-
-## Do we need artifacts at all?
-
-No. The page is the product and it must work without them, because Codex and plain CLI users never see an artifact. In Claude Code, publishing the page as an artifact is a one-line convenience for sharing a link with a co-founder. Keep it, don't design for it.
+```bash
+node -e 'const r=require("./apps/<slug>/reviews.json").reviews.filter(x=>x.rating===1&&x.date>="2026-06-01"&&/withdraw/i.test(x.title+x.body));console.log(r.length);r.slice(0,5).forEach(x=>console.log(x.date,x.title,"\n ",x.body))'
+```

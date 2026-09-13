@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // appstore — App Store research from public endpoints. Zero dependencies. Node 18+.
-// Commands: find | profile | reviews | compare | keywords | aso | refresh | report | run | hints   (see SKILL.md)
+// Commands: find | profile | reviews | compare | refresh | report | run | hints   (see SKILL.md)
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -260,10 +260,8 @@ async function cmdReviews(o, run) {
 }
 
 
-// ---------- compare / keywords / aso / refresh ----------
-const STOP = new Set('the and for with your you app apps from into that this are all any our its via per one new get pro plus free best top ios iphone ipad by of to in on at or an a is it be as up'.split(' '));
+// ---------- compare / refresh ----------
 const shortName = n => String(n).replace(/\u00AD/g, '').replace(/[:–—-].*$/, '').trim() || n;
-const tokenize = t => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(w => w.length > 1 && !STOP.has(w));
 const money = p => { const m = String(p || '').replace(/,/g, '').match(/(\d+(?:\.\d+)?)/); return m ? +m[1] : null; };
 const loadRun = run => ({ profiles: readJSON(path.join(run, 'profiles.json')) || [], rsum: readJSON(path.join(run, 'reviews-summary.json')) || [], short: readJSON(path.join(run, 'shortlist.json')) });
 const splitList = v => v ? String(v).split('|').map(x => x.trim()).filter(Boolean) : [];
@@ -291,51 +289,7 @@ function cmdCompare(o, run) {
   return out;
 }
 
-async function cmdKeywords(o, run) {
-  const cc = (o.country || 'us').split(',')[0];
-  const { profiles, short } = loadRun(run);
-  const terms = splitList(o.terms).length ? splitList(o.terms) : (short ? short.terms : []);
-  if (!terms.length) throw new Error('give --terms "a|b|c"');
-  const ids = new Set(profiles.map(p => p.id));
-  const rows = [], others = {};
-  for (const t of terms) {
-    const r = await search(t, cc, 25);
-    let auto = []; try { auto = await hints(t, cc); } catch {}
-    r.slice(0, 10).forEach((a, i) => { if (!ids.has(a.trackId)) { const x = others[a.trackId] = others[a.trackId] || { id: a.trackId, name: a.trackName, url: a.trackViewUrl, ratings: a.userRatingCount, terms: [] }; x.terms.push(`${t} #${i + 1}`); } });
-    rows.push({ term: t, results: r.length, positions: Object.fromEntries(profiles.map(p => [p.id, (r.findIndex(a => a.trackId === p.id) + 1) || null])), top: r.slice(0, 10).map((a, i) => ({ rank: i + 1, id: a.trackId, name: a.trackName, ratings: a.userRatingCount })), autocomplete: auto.slice(0, 10) });
-    log(`keyword "${t}": ${r.length} results, ${auto.length} suggestions`);
-  }
-  const apps = profiles.map(p => ({ id: p.id, name: p.name, short: shortName(p.name), url: p.url, subtitle: p.subtitle || null, words: [...new Set(tokenize(p.name + ' ' + (p.subtitle || '')))] }));
-  const out = { at: today(), country: cc, terms: rows, apps, others: Object.values(others).sort((a, b) => b.terms.length - a.terms.length || b.ratings - a.ratings).slice(0, 15) };
-  writeJSON(path.join(run, 'keywords.json'), out);
-  console.log(JSON.stringify({ grid: rows.map(r => ({ term: r.term, ...Object.fromEntries(apps.map(a => [a.short, r.positions[a.id]])), autocomplete: r.autocomplete.slice(0, 5) })), others: out.others.slice(0, 8).map(x => `${x.name} (${x.terms.join(', ')})`), file: path.join(run, 'keywords.json') }, null, 1));
-  return out;
-}
 
-async function cmdASO(o, run) {
-  const cc = (o.country || 'us').split(',')[0];
-  if (!o._[0]) throw new Error('give your app: aso <link|id|name>');
-  const { id } = await resolve(o._[0], cc);
-  const base = await lookup(id, cc); if (!base) throw new Error('app not found');
-  const page = await storePage(id, cc);
-  const mine = { id, name: base.trackName, subtitle: page.subtitle || null, url: base.trackViewUrl, genre: base.primaryGenreName, rating: +base.averageUserRating.toFixed(2), ratings: base.userRatingCount, chart: page.chart || null };
-  let comps = loadRun(run).profiles.filter(p => p.id !== id).map(p => ({ id: p.id, name: p.name, subtitle: p.subtitle || null, url: p.url, ratings: p.ratings }));
-  for (const v of splitList(o.vs)) { const r = await resolve(v, cc); if (r.id === id) continue; const b = await lookup(r.id, cc); const pg = await storePage(r.id, cc); comps.push({ id: r.id, name: b.trackName, subtitle: pg.subtitle || null, url: b.trackViewUrl, ratings: b.userRatingCount }); }
-  if (!comps.length) throw new Error('no competitors: profile some in this run or pass --vs "id|id"');
-  const myWords = [...new Set(tokenize(mine.name + ' ' + (mine.subtitle || '')))];
-  const freq = {}; for (const c of comps) for (const w of new Set(tokenize(c.name + ' ' + (c.subtitle || '')))) (freq[w] = freq[w] || { word: w, apps: [] }).apps.push(shortName(c.name));
-  const competitorWords = Object.values(freq).sort((a, b) => b.apps.length - a.apps.length);
-  const youLack = competitorWords.filter(x => !myWords.includes(x.word));
-  const seeds = splitList(o.terms).length ? splitList(o.terms) : [...new Set(myWords.slice(0, 3).concat(youLack.slice(0, 3).map(x => x.word)))];
-  const autocomplete = {}; for (const t of seeds) { try { autocomplete[t] = (await hints(t, cc)).slice(0, 10); } catch { autocomplete[t] = []; } }
-  const checks = [...new Set(seeds.concat(Object.values(autocomplete).flat()))].slice(0, 25);
-  const positions = {};
-  for (const t of checks) { const r = await search(t, cc, 25); positions[t] = { you: (r.findIndex(a => a.trackId === id) + 1) || null, competitors: Object.fromEntries(comps.map(c => [shortName(c.name), (r.findIndex(a => a.trackId === c.id) + 1) || null])), top3: r.slice(0, 3).map(a => a.trackName) }; }
-  const out = { at: today(), country: cc, app: { ...mine, titleChars: mine.name.length, subtitleChars: (mine.subtitle || '').length, limit: 30, words: myWords }, competitors: comps, competitorWords, youLack, autocomplete, positions };
-  writeJSON(path.join(run, 'aso.json'), out);
-  console.log(JSON.stringify(out, null, 1));
-  return out;
-}
 
 async function cmdRefresh(o, run) {
   const { profiles, rsum } = loadRun(run);
@@ -380,13 +334,11 @@ const USAGE = `appstore.js — App Store research from Apple's public endpoints.
 usage: node appstore.js <command> [inputs] [options]
 
 commands
-  run       --idea "text" --terms "a|b|c" [--must "w"] [--top 5]   find + profile + reviews + compare + keywords + report
+  run       --idea "text" --terms "a|b|c" [--must "w"] [--top 5]   find + profile + reviews + compare + report
   find      --terms "a|b|c" [--must "w"] [--exclude "x"]          shortlist candidates for an idea, with chart ranks
   profile   <link|id|name> ...                                    listing, IAPs, histogram, privacy, screenshots
   reviews   <link|id|name> ... [--since 2026-01-01]               every written review with developer replies
   compare   [--terms "withdraw|fees"]                             side by side table of the profiled apps
-  keywords  [--terms "a|b"]                                       search position per term per app, autocomplete
-  aso       <my link> [--vs "id|id"] [--terms "a|b"]              my title/subtitle words vs competitors, positions
   refresh                                                         refetch the run and list what changed
   report                                                          rebuild report.html
   hints     "<term>" ...                                          Apple search autocomplete
@@ -414,8 +366,6 @@ async function main() {
     else if (cmd === 'reviews') await cmdReviews(o, run);
     else if (cmd === 'report') cmdReport(o, run);
     else if (cmd === 'compare') { cmdCompare(o, run); require('./report.js').build(run); }
-    else if (cmd === 'keywords') { await cmdKeywords(o, run); require('./report.js').build(run); }
-    else if (cmd === 'aso') await cmdASO(o, run);
     else if (cmd === 'refresh') await cmdRefresh(o, run);
     else if (cmd === 'hints') { for (const t of o._) console.log(JSON.stringify({ term: t, suggestions: await hints(t, (o.country || 'us').split(',')[0]) })); }
     else if (cmd === 'run') {
@@ -424,7 +374,7 @@ async function main() {
       await cmdProfile({ ...o, _: top }, run);
       await cmdReviews({ ...o, _: top }, run);
       const quiet = console.log; console.log = () => {};
-      try { if (top.length > 1) cmdCompare(o, run); await cmdKeywords({ ...o, terms: undefined }, run); } catch (e) { log('compare/keywords skipped:', e.message); }
+      try { if (top.length > 1) cmdCompare(o, run); } catch (e) { log('compare skipped:', e.message); }
       console.log = quiet;
       saveProvenance(run); cmdReport(o, run);
     }
