@@ -9,6 +9,11 @@
   No Apple account. No API key. No packages. Works in Claude Code and Codex.
 </p>
 
+<p align="center">
+  <a href="assets/demo.mp4"><img src="assets/demo.gif" width="800" alt="Demo: budgeting app competitors, Rocket Money complaints, the report"></a><br>
+  <sub><a href="assets/demo.mp4">Watch in 1080p</a></sub>
+</p>
+
 ## Install
 
 ```bash
