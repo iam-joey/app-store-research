@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires Node.js 18 or newer and internet access to apple.com. No packages, no API keys.
 metadata:
   author: iam-joey
-  version: "0.1"
+  version: "0.2"
 ---
 
 # App Store research
@@ -25,16 +25,17 @@ Run: `node <skill folder>/scripts/appstore.js <command> ... --run <name>`. JSON 
 
 | They ask | Command | Read | Answer in chat |
 |---|---|---|---|
-| Who are my competitors for [idea]? | `find --terms "a\|b\|c" --must "w"` | `shortlist.json` | 5 to 8 apps: name with link, rating, ratings count, price, chart ranks. Offer to profile the top ones. |
+| Who are my competitors for [idea]? | `find --terms "a\|b\|c" --must "w"` | `shortlist.json` | 5 to 8 apps: name with link, rating, ratings count, price, chart ranks. Offer to profile the top ones. If the user is building something indie and giants (Spotify, Calm, YouTube Music) crowd the list, or they say "skip the big ones", add `--max-ratings 50000` or whatever ceiling fits. Apps over the cap are still listed under `overCap`, they just cannot take a top slot. |
 | Tell me about [app] | `profile <link>` | `profiles.json` | Price, in-app purchases, rating and count, chart position, last update, subtitle, privacy label summary. |
 | What do people hate / love about [app]? | `reviews <link>` | `reviews-summary.json`, `apps/*/reviews.json` | Counts (all time, last 90 days, negative share), then 3 to 5 verbatim quotes with stars and dates. Name the search word and the Loved / Complaints button on the page. |
 | How do they make money? | `profile` | `profiles.json` | One table: download price, in-app purchase names and prices. |
 | Compare these / me vs them | `compare --terms "withdraw\|fees"` | `compare.json` | Point to the Side by side section. In chat, only the rows that differ. `--terms` counts reviews mentioning each word per app. |
+| Drop [app] from this run / remove it | `drop <name>` | | The app's folder is deleted, it leaves profiles, review summary and compare, and the report is rebuilt. Confirm what remains. |
 | Anything changed since last time? | `refresh` | `changes.json` | Per app: rating, ratings, price, IAP, chart, version changes and new review counts. |
 | The whole research on [idea] | `run --idea "..." --terms "a\|b\|c\|d\|e\|f" --must "w" --top 5` | everything | find, profile, reviews, compare, report in one go. 2 to 6 minutes. Then give the report. |
 | Give me the report | `report` | | Path to `report.html`. Publish it if an artifact tool exists, with `apps/**/screenshots/*` as supporting files so images render. |
 
-`--terms` and `--must` use `|` as separator. `--country us,in` fetches several storefronts (first one is used for search and charts). `--exclude "coinbase|binance"` drops names from a shortlist. `--pick id,id` chooses which candidates to profile. `hints "<term>"` prints Apple's autocomplete for any term.
+`--terms` and `--must` use `|` as separator. `--country us,in` fetches several storefronts (first one is used for search and charts). `--exclude "coinbase|binance"` drops names from a shortlist. `--max-ratings 50000` keeps apps above that many ratings out of the top slots. Scoring already stops rewarding size past 100,000 ratings, so a giant never wins on ratings alone. `--pick id,id` chooses which candidates to profile. `hints "<term>"` prints Apple's autocomplete for any term.
 
 ## Chat or page?
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // appstore — App Store research from public endpoints. Zero dependencies. Node 18+.
-// Commands: find | profile | reviews | compare | refresh | report | run | hints   (see SKILL.md)
+// Commands: find | profile | reviews | compare | drop | refresh | report | run | hints   (see SKILL.md)
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -175,8 +175,11 @@ async function cmdFind(o, run) {
   let cands = [...apps.values()].filter(rel).map(a => ({ ...a, _hits: hits[a.trackId], _source: 'search' }));
   const excl = o.exclude ? o.exclude.split('|').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
   cands = cands.filter(a => !excl.some(w => a.trackName.toLowerCase().includes(w)));
-  const score = a => a._hits.length * Math.log10(a.userRatingCount + 100);
-  cands.sort((x, y) => score(y) - score(x));
+  // size counts, but only up to 100k ratings, so giants can't win on ratings alone
+  const score = a => a._hits.length * Math.log10(Math.min(a.userRatingCount, 100000) + 100);
+  const maxRatings = o['max-ratings'] ? +String(o['max-ratings']).replace(/[^0-9]/g, '') : null;
+  const giant = a => maxRatings != null && a.userRatingCount > maxRatings;
+  cands.sort((x, y) => (giant(x) - giant(y)) || (score(y) - score(x)));
   // similar-apps hop from the top 3
   const hop = [];
   for (const a of cands.slice(0, 3)) {
@@ -191,11 +194,11 @@ async function cmdFind(o, run) {
   let free = [], gross = [];
   if (gid) { try { free = await chart('topfreeapplications', gid, cc); gross = await chart('topgrossingapplications', gid, cc); } catch (e) { log('charts failed', String(e)); } }
   const rankIn = (list, id) => (list.find(x => +x.id === id) || {}).rank || null;
-  const shortlist = cands.map(a => ({ id: a.trackId, name: a.trackName, url: a.trackViewUrl, seller: a.sellerName, rating: +a.averageUserRating.toFixed(2), ratings: a.userRatingCount, price: a.formattedPrice, genre: a.primaryGenreName, version: a.version, updated: a.currentVersionReleaseDate.slice(0, 10), released: a.releaseDate.slice(0, 10), topFreeRank: rankIn(free, a.trackId), topGrossingRank: rankIn(gross, a.trackId), hits: a._hits.map(h => `${h.term} #${h.position}`), source: a._source }));
-  const out = { idea: o.idea || terms.join(', '), country: cc, terms, must, genreId: gid, shortlist, chartsTop10: { free: free.slice(0, 10), grossing: gross.slice(0, 10) } };
+  const shortlist = cands.map(a => ({ id: a.trackId, name: a.trackName, url: a.trackViewUrl, seller: a.sellerName, rating: +a.averageUserRating.toFixed(2), ratings: a.userRatingCount, price: a.formattedPrice, genre: a.primaryGenreName, version: a.version, updated: a.currentVersionReleaseDate.slice(0, 10), released: a.releaseDate.slice(0, 10), topFreeRank: rankIn(free, a.trackId), topGrossingRank: rankIn(gross, a.trackId), hits: a._hits.map(h => `${h.term} #${h.position}`), source: a._source, overCap: giant(a) || undefined }));
+  const out = { idea: o.idea || terms.join(', '), country: cc, terms, must, maxRatings, genreId: gid, shortlist, chartsTop10: { free: free.slice(0, 10), grossing: gross.slice(0, 10) } };
   writeJSON(path.join(run, 'shortlist.json'), out);
   fs.writeFileSync(path.join(run, 'shortlist.csv'), csv(shortlist, ['id', 'name', 'seller', 'rating', 'ratings', 'price', 'genre', 'updated', 'released', 'topFreeRank', 'topGrossingRank', 'source']));
-  console.log(JSON.stringify({ shortlist: shortlist.slice(0, top).map(s => ({ id: s.id, name: s.name, rating: s.rating, ratings: s.ratings, price: s.price, topFreeRank: s.topFreeRank, topGrossingRank: s.topGrossingRank, updated: s.updated, source: s.source, hits: s.hits })), totalCandidates: shortlist.length, file: path.join(run, 'shortlist.json') }, null, 1));
+  console.log(JSON.stringify({ shortlist: shortlist.filter(s => !s.overCap).slice(0, top).map(s => ({ id: s.id, name: s.name, rating: s.rating, ratings: s.ratings, price: s.price, topFreeRank: s.topFreeRank, topGrossingRank: s.topGrossingRank, updated: s.updated, source: s.source, hits: s.hits })), overCap: shortlist.filter(s => s.overCap).map(s => `${s.name} (${s.ratings.toLocaleString('en-US')} ratings)`), totalCandidates: shortlist.length, file: path.join(run, 'shortlist.json') }, null, 1));
   return out;
 }
 
@@ -317,6 +320,29 @@ async function cmdRefresh(o, run) {
   return out;
 }
 
+
+async function cmdDrop(o, run) {
+  const { profiles, rsum } = loadRun(run);
+  if (!o._.length) throw new Error('give the app to drop: drop <link|id|name>');
+  const dropped = [];
+  for (const input of o._) {
+    const q = String(input).toLowerCase();
+    const m = q.match(/id(\d{6,})/) || q.match(/^(\d{6,})$/);
+    const hit = profiles.find(p => m ? p.id === +m[1] : (p.name.toLowerCase().includes(q) || shortName(p.name).toLowerCase() === q));
+    if (!hit) { log('not in this run:', input); continue; }
+    fs.rmSync(hit.dir, { recursive: true, force: true });
+    dropped.push({ id: hit.id, name: hit.name });
+  }
+  const ids = new Set(dropped.map(d => d.id));
+  writeJSON(path.join(run, 'profiles.json'), profiles.filter(p => !ids.has(p.id)));
+  if (rsum.length) writeJSON(path.join(run, 'reviews-summary.json'), rsum.filter(r => !ids.has(r.id)));
+  const cmp = readJSON(path.join(run, 'compare.json'));
+  if (cmp) { cmp.apps = cmp.apps.filter(a => !ids.has(a.id)); writeJSON(path.join(run, 'compare.json'), cmp); }
+  const rp = require('./report.js').build(run);
+  console.log(JSON.stringify({ dropped, remaining: profiles.filter(p => !ids.has(p.id)).map(p => p.name), report: rp.report }, null, 1));
+  return dropped;
+}
+
 // ---------- report ----------
 function cmdReport(o, run) { const r = require('./report.js').build(run); console.log(JSON.stringify(r)); }
 
@@ -335,10 +361,11 @@ usage: node appstore.js <command> [inputs] [options]
 
 commands
   run       --idea "text" --terms "a|b|c" [--must "w"] [--top 5]   find + profile + reviews + compare + report
-  find      --terms "a|b|c" [--must "w"] [--exclude "x"]          shortlist candidates for an idea, with chart ranks
+  find      --terms "a|b|c" [--must "w"] [--max-ratings 50000]   shortlist candidates for an idea, with chart ranks
   profile   <link|id|name> ...                                    listing, IAPs, histogram, privacy, screenshots
   reviews   <link|id|name> ... [--since 2026-01-01]               every written review with developer replies
   compare   [--terms "withdraw|fees"]                             side by side table of the profiled apps
+  drop      <link|id|name> ...                                    remove an app from the run and rebuild the report
   refresh                                                         refetch the run and list what changed
   report                                                          rebuild report.html
   hints     "<term>" ...                                          Apple search autocomplete
@@ -347,6 +374,8 @@ options
   --run <name>        run folder name (default: date + inputs)
   --country us,in     storefronts; the first is used for search and charts
   --pick id,id        which shortlist entries to profile in run
+  --max-ratings N     find: apps above N ratings cannot take a top slot (giants still listed)
+  --exclude "a|b"     find: drop names from the shortlist
   --full-images       full-size screenshots
 
 inputs accept an apps.apple.com link, a numeric id, or an app name.
@@ -367,10 +396,11 @@ async function main() {
     else if (cmd === 'report') cmdReport(o, run);
     else if (cmd === 'compare') { cmdCompare(o, run); require('./report.js').build(run); }
     else if (cmd === 'refresh') await cmdRefresh(o, run);
+    else if (cmd === 'drop') await cmdDrop(o, run);
     else if (cmd === 'hints') { for (const t of o._) console.log(JSON.stringify({ term: t, suggestions: await hints(t, (o.country || 'us').split(',')[0]) })); }
     else if (cmd === 'run') {
       const f = await cmdFind(o, run);
-      const top = o.pick ? String(o.pick).split(',').map(s => s.trim()) : f.shortlist.slice(0, +(o.top || 5)).map(s => String(s.id));
+      const top = o.pick ? String(o.pick).split(',').map(s => s.trim()) : f.shortlist.filter(s => !s.overCap).slice(0, +(o.top || 5)).map(s => String(s.id));
       await cmdProfile({ ...o, _: top }, run);
       await cmdReviews({ ...o, _: top }, run);
       const quiet = console.log; console.log = () => {};
